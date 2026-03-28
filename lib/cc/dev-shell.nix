@@ -55,7 +55,7 @@ let
             for lib in ${cfg.bazelNixDeps}/libs/*; do
               libname=$(basename "$lib")
               # Use -f to allow later toolchains to override (e.g., default wins for unsuffixed)
-              ln -sf "$lib" ".nix-bazel-deps/libs/$libname"
+              ln -sfn "$lib" ".nix-bazel-deps/libs/$libname"
             done
           '') toolchains
         )}

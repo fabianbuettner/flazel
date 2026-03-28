@@ -1,17 +1,27 @@
 # CC Toolchain configuration for hermetic Bazel builds
 #
 # Creates a complete build configuration including:
-# - GCC toolchain with configurable version
+# - GCC or Clang toolchain with configurable version
 # - Static (musl) or dynamic (glibc) linking
 # - Cross-compilation support via target parameter
 # - Configurable C/C++ standards
 # - Bazel repository generation for nixpkgs libraries
+# - Clang-only features: module_maps, layering_check, parse_headers
 #
-# Usage (native build):
+# Usage (native build with GCC):
 #   cfg = flazel.lib.cc.mkConfig {
 #     inherit pkgs;
 #     static = true;  # optional, defaults to false
 #     gcc = pkgs.pkgsStatic.gcc14;  # optional
+#     nixpkgsLibs = { openssl = pkgs.openssl; };
+#   };
+#
+# Usage (native build with Clang):
+#   cfg = flazel.lib.cc.mkConfig {
+#     inherit pkgs;
+#     toolchainName = "clang";
+#     compiler = "clang";
+#     clang = pkgs.clang_19;
 #     nixpkgsLibs = { openssl = pkgs.openssl; };
 #   };
 #
@@ -33,8 +43,15 @@
   # Name for this toolchain (used in Bazel repo names: local_config_cc_<name>)
   toolchainName ? "default",
   static ? false,
+  # Compiler selection: "gcc" (default) or "clang"
+  compiler ? "gcc",
   # GCC package to use (caller provides appropriate version for target)
+  # Also used by Clang toolchains for libstdc++ headers
   gcc ? null,
+  # Clang package to use (only when compiler = "clang")
+  clang ? null,
+  # LLVM bintools package (only when compiler = "clang", auto-derived if not provided)
+  llvmBintools ? null,
   cStandard ? "c17",
   cxxStandard ? "c++23",
   # Target configuration for cross-compilation
@@ -47,6 +64,9 @@ let
   mkNixpkgsRepo = import ./nixpkgs-repo.nix;
   getTransitiveDeps = import ../core/utils.nix pkgs;
 
+  # Compiler mode
+  isClang = compiler == "clang";
+
   # Check if this is a bare metal target (no libc)
   isBaremetal = target ? libc && target.libc == null;
 
@@ -56,9 +76,22 @@ let
   buildPkgs = if effectiveStatic then pkgs.pkgsStatic else pkgs;
 
   # Use provided gcc or default from buildPkgs
+  # For Clang toolchains, gcc is still needed for libstdc++ headers
   effectiveGcc = if gcc != null then gcc else buildPkgs.gcc;
   binutils = target.binutils or buildPkgs.binutils;
   gccVersion = effectiveGcc.version;
+
+  # Clang-specific bindings
+  effectiveClang = if clang != null then clang else buildPkgs.clang;
+  # clang.cc is the unwrapped clang (has the actual clang binary)
+  clangUnwrapped = effectiveClang.cc;
+  # clang.cc.lib has the resource directory with builtin headers
+  clangLib = clangUnwrapped.lib;
+  # LLVM major version for resource directory path (e.g., "19" from "19.1.7")
+  clangMajorVersion = builtins.head (pkgs.lib.splitString "." clangUnwrapped.version);
+  # LLVM bintools (ar, nm, objdump, etc.)
+  effectiveLlvmBintools =
+    if llvmBintools != null then llvmBintools else pkgs.llvmPackages_19.bintools-unwrapped;
 
   # Default target configuration based on effectiveStatic parameter
   defaultTarget =
@@ -115,6 +148,7 @@ let
   depsRepoName = "local_config_cc_${toolchainName}_deps";
 
   # Link flags - can be overridden via target.linkFlags
+  # Clang on NixOS uses GCC's libstdc++ by default, so link flags reference gcc-lib
   defaultLinkFlags =
     if isBaremetal then
       ''
@@ -133,6 +167,18 @@ let
         "-Lexternal/${depsRepoName}/libc/lib",
         "-Bexternal/${depsRepoName}/binutils/bin",
         "-lstdc++",
+        "-no-canonical-prefixes",
+      ''
+    else if isClang then
+      ''
+        "-Lexternal/${depsRepoName}/gcc-lib/lib",
+        "-Lexternal/${depsRepoName}/libc/lib",
+        "-Wl,-rpath,${effectiveGcc.cc}/lib",
+        "-Wl,-rpath,${libc}/lib",
+        "-Wl,--dynamic-linker=${libc}/lib/ld-linux-x86-64.so.2",
+        "-Bexternal/${depsRepoName}/binutils/bin",
+        "-lstdc++",
+        "-lm",
         "-no-canonical-prefixes",
       ''
     else
@@ -223,6 +269,7 @@ let
   # CC toolchain binaries
   # Cross-compilers use prefixed names (e.g., aarch64-unknown-linux-musl-gcc)
   # Native compilers use unprefixed names (e.g., gcc)
+  # Bazel tool_path names are canonical (gcc, g++, ar, etc.) regardless of actual compiler.
   # gcov wrapper: Bazel's collect_cc_coverage.sh uses gcov -i, but GCC 15+
   # removed the -i flag (replaced by -j/--json-format, available since GCC 9).
   # This wrapper translates -i to -j for GCC >= 9 so both old and new GCC work.
@@ -242,60 +289,169 @@ let
       exec "$REAL_GCOV" "$@"
     '';
 
-  ccToolchainBinaries = pkgs.runCommand "cc-toolchain-bin" { } ''
-    mkdir -p $out/bin
-    # Try prefixed first (cross-compiler), then unprefixed (native)
-    if [ -e ${effectiveGcc}/bin/${targetTriple}-gcc ]; then
-      ln -s ${effectiveGcc}/bin/${targetTriple}-gcc $out/bin/gcc
-      ln -s ${effectiveGcc}/bin/${targetTriple}-g++ $out/bin/g++
-      ln -s ${effectiveGcc}/bin/${targetTriple}-cpp $out/bin/cpp
-      # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
-      if [ -e ${effectiveGcc.cc}/bin/${targetTriple}-gcov ]; then
-        ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/${targetTriple}-gcov"} $out/bin/gcov
-      elif [ -e ${effectiveGcc.cc}/bin/gcov ]; then
-        ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
-      else
-        ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
-      fi
+  ccToolchainBinaries = pkgs.runCommand "cc-toolchain-bin" { } (
+    if isClang then
+      # Clang toolchain: symlink clang/LLVM binaries to canonical Bazel names
+      ''
+        mkdir -p $out/bin
+        ln -s ${effectiveClang}/bin/clang $out/bin/gcc
+        ln -s ${effectiveClang}/bin/clang++ $out/bin/g++
+        ln -s ${effectiveClang}/bin/clang-cpp $out/bin/cpp
+        # LLVM bintools
+        ln -s ${effectiveLlvmBintools}/bin/ar $out/bin/ar
+        ln -s ${effectiveLlvmBintools}/bin/llvm-nm $out/bin/nm
+        ln -s ${effectiveLlvmBintools}/bin/llvm-objdump $out/bin/objdump
+        ln -s ${effectiveLlvmBintools}/bin/llvm-objcopy $out/bin/objcopy
+        ln -s ${effectiveLlvmBintools}/bin/llvm-strip $out/bin/strip
+        ln -s ${effectiveLlvmBintools}/bin/ld.lld $out/bin/ld
+        # Coverage and profiling
+        if [ -e ${effectiveLlvmBintools}/bin/llvm-cov ]; then
+          ln -s ${effectiveLlvmBintools}/bin/llvm-cov $out/bin/gcov
+        else
+          ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
+        fi
+        if [ -e ${effectiveLlvmBintools}/bin/llvm-dwp ]; then
+          ln -s ${effectiveLlvmBintools}/bin/llvm-dwp $out/bin/dwp
+        else
+          ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
+        fi
+        if [ -e ${effectiveLlvmBintools}/bin/llvm-profdata ]; then
+          ln -s ${effectiveLlvmBintools}/bin/llvm-profdata $out/bin/llvm-profdata
+        else
+          ln -s ${pkgs.coreutils}/bin/false $out/bin/llvm-profdata
+        fi
+      ''
     else
-      ln -s ${effectiveGcc}/bin/gcc $out/bin/gcc
-      ln -s ${effectiveGcc}/bin/g++ $out/bin/g++
-      ln -s ${effectiveGcc}/bin/cpp $out/bin/cpp
-      # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
-      if [ -e ${effectiveGcc.cc}/bin/gcov ]; then
-        ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
-      else
-        ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
-      fi
-    fi
-    # Binutils - try prefixed first, then unprefixed
-    if [ -e ${binutils}/bin/${targetTriple}-ar ]; then
-      ln -s ${binutils}/bin/${targetTriple}-ar $out/bin/ar
-      ln -s ${binutils}/bin/${targetTriple}-nm $out/bin/nm
-      ln -s ${binutils}/bin/${targetTriple}-objdump $out/bin/objdump
-      ln -s ${binutils}/bin/${targetTriple}-objcopy $out/bin/objcopy
-      ln -s ${binutils}/bin/${targetTriple}-strip $out/bin/strip
-      ln -s ${binutils}/bin/${targetTriple}-ld $out/bin/ld
-      if [ -e ${binutils}/bin/${targetTriple}-dwp ]; then
-        ln -s ${binutils}/bin/${targetTriple}-dwp $out/bin/dwp
-      else
-        ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
-      fi
+      # GCC toolchain: existing logic unchanged
+      ''
+        mkdir -p $out/bin
+        # Try prefixed first (cross-compiler), then unprefixed (native)
+        if [ -e ${effectiveGcc}/bin/${targetTriple}-gcc ]; then
+          ln -s ${effectiveGcc}/bin/${targetTriple}-gcc $out/bin/gcc
+          ln -s ${effectiveGcc}/bin/${targetTriple}-g++ $out/bin/g++
+          ln -s ${effectiveGcc}/bin/${targetTriple}-cpp $out/bin/cpp
+          # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
+          if [ -e ${effectiveGcc.cc}/bin/${targetTriple}-gcov ]; then
+            ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/${targetTriple}-gcov"} $out/bin/gcov
+          elif [ -e ${effectiveGcc.cc}/bin/gcov ]; then
+            ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
+          else
+            ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
+          fi
+        else
+          ln -s ${effectiveGcc}/bin/gcc $out/bin/gcc
+          ln -s ${effectiveGcc}/bin/g++ $out/bin/g++
+          ln -s ${effectiveGcc}/bin/cpp $out/bin/cpp
+          # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
+          if [ -e ${effectiveGcc.cc}/bin/gcov ]; then
+            ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
+          else
+            ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
+          fi
+        fi
+        # Binutils - try prefixed first, then unprefixed
+        if [ -e ${binutils}/bin/${targetTriple}-ar ]; then
+          ln -s ${binutils}/bin/${targetTriple}-ar $out/bin/ar
+          ln -s ${binutils}/bin/${targetTriple}-nm $out/bin/nm
+          ln -s ${binutils}/bin/${targetTriple}-objdump $out/bin/objdump
+          ln -s ${binutils}/bin/${targetTriple}-objcopy $out/bin/objcopy
+          ln -s ${binutils}/bin/${targetTriple}-strip $out/bin/strip
+          ln -s ${binutils}/bin/${targetTriple}-ld $out/bin/ld
+          if [ -e ${binutils}/bin/${targetTriple}-dwp ]; then
+            ln -s ${binutils}/bin/${targetTriple}-dwp $out/bin/dwp
+          else
+            ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
+          fi
+        else
+          ln -s ${binutils}/bin/ar $out/bin/ar
+          ln -s ${binutils}/bin/nm $out/bin/nm
+          ln -s ${binutils}/bin/objdump $out/bin/objdump
+          ln -s ${binutils}/bin/objcopy $out/bin/objcopy
+          ln -s ${binutils}/bin/strip $out/bin/strip
+          ln -s ${binutils}/bin/ld $out/bin/ld
+          if [ -e ${binutils}/bin/dwp ]; then
+            ln -s ${binutils}/bin/dwp $out/bin/dwp
+          else
+            ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
+          fi
+        fi
+        ln -s ${pkgs.coreutils}/bin/false $out/bin/llvm-profdata
+      ''
+  );
+
+  # Builtin include directories — Clang needs both its own resource headers
+  # and GCC's libstdc++ headers (Clang on NixOS uses libstdc++, not libc++)
+  builtinIncludeDirs =
+    if isClang then
+      ''
+                  "${clangLib}/lib/clang/${clangMajorVersion}/include",
+                  "${effectiveGcc.cc}/include/c++/${gccVersion}",
+                  "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
+        ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}''
     else
-      ln -s ${binutils}/bin/ar $out/bin/ar
-      ln -s ${binutils}/bin/nm $out/bin/nm
-      ln -s ${binutils}/bin/objdump $out/bin/objdump
-      ln -s ${binutils}/bin/objcopy $out/bin/objcopy
-      ln -s ${binutils}/bin/strip $out/bin/strip
-      ln -s ${binutils}/bin/ld $out/bin/ld
-      if [ -e ${binutils}/bin/dwp ]; then
-        ln -s ${binutils}/bin/dwp $out/bin/dwp
-      else
-        ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
-      fi
-    fi
-    ln -s ${pkgs.coreutils}/bin/false $out/bin/llvm-profdata
-  '';
+      ''
+                  "${effectiveGcc.cc}/include/c++/${gccVersion}",
+                  "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
+                  "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include",
+                  "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
+                  "${effectiveGcc.cc}/${targetTriple}/sys-include",
+                  "${effectiveGcc.cc}/${targetTriple}/include",
+        ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}'';
+
+  # Sandbox -isystem flags — within Bazel's sandbox, headers are accessed
+  # through the deps repo symlinks, not direct Nix store paths
+  compileIsystemFlags =
+    if isClang then
+      ''
+        "-isystem", "external/${depsRepoName}/clang-lib/lib/clang/${clangMajorVersion}/include",
+        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}",
+        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
+        ${libcIsystemFlags}"-no-canonical-prefixes",
+      ''
+    else
+      ''
+        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}",
+        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
+        "-isystem", "external/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include",
+        "-isystem", "external/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
+        ${libcIsystemFlags}"-no-canonical-prefixes",
+        "-fno-canonical-system-headers",
+      '';
+
+  # Clang-only features: module_maps, layering_check, parse_headers
+  clangFeatures =
+    if isClang then
+      ''
+        feature(
+            name = "module_maps",
+            enabled = True,
+            flag_sets = [flag_set(
+                actions = _COMPILE_ACTIONS,
+                flag_groups = [flag_group(flags = [
+                    "-fmodule-map-file=%{module_map_file}",
+                ])],
+            )],
+        ),
+        feature(
+            name = "layering_check",
+            flag_sets = [flag_set(
+                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                flag_groups = [flag_group(flags = [
+                    "-fmodules-strict-decluse",
+                    "-Wprivate-header",
+                ])],
+            )],
+        ),
+        feature(
+            name = "parse_headers",
+            flag_sets = [flag_set(
+                actions = [ACTION_NAMES.cpp_header_parsing],
+                flag_groups = [flag_group(flags = ["-fsyntax-only"])],
+            )],
+        ),
+      ''
+    else
+      "";
 
   ccToolchainBuild = pkgs.writeText "BUILD.bazel" ''
     load("@rules_cc//cc:defs.bzl", "cc_toolchain", "cc_toolchain_suite")
@@ -325,7 +481,7 @@ let
 
     cc_toolchain_suite(
         name = "toolchain",
-        toolchains = {"k8": ":local_config_cc_toolchain", "k8|gcc": ":local_config_cc_toolchain"},
+        toolchains = {"k8": ":local_config_cc_toolchain", "k8|${compiler}": ":local_config_cc_toolchain"},
     )
 
     toolchain(
@@ -369,17 +525,11 @@ let
             target_system_name = "${targetTriple}",
             target_cpu = "${targetCpu}",
             target_libc = "${libcName}",
-            compiler = "gcc",
+            compiler = "${compiler}",
             abi_version = "local",
             abi_libc_version = "local",
             cxx_builtin_include_directories = [
-                "${effectiveGcc.cc}/include/c++/${gccVersion}",
-                "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
-                "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include",
-                "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
-                "${effectiveGcc.cc}/${targetTriple}/sys-include",
-                "${effectiveGcc.cc}/${targetTriple}/include",
-    ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}        ],
+    ${builtinIncludeDirs}        ],
             tool_paths = [
                 tool_path(name = "gcc", path = "bin/gcc"),
                 tool_path(name = "g++", path = "bin/g++"),
@@ -401,13 +551,7 @@ let
                     flag_sets = [flag_set(
                         actions = _COMPILE_ACTIONS,
                         flag_groups = [flag_group(flags = [
-                            "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}",
-                            "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
-                            "-isystem", "external/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include",
-                            "-isystem", "external/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
-                            ${libcIsystemFlags}"-no-canonical-prefixes",
-                            "-fno-canonical-system-headers",
-                        ])],
+    ${compileIsystemFlags}                    ])],
                     )],
                 ),
                 feature(
@@ -448,7 +592,7 @@ let
                         flag_groups = [flag_group(flags = ["-g", "-O0"])],
                     )],
                 ),
-            ],
+    ${clangFeatures}        ],
         )
 
     cc_toolchain_config = rule(implementation = _impl, attrs = {}, provides = [CcToolchainConfigInfo])
@@ -462,15 +606,18 @@ let
   '';
 
   # Toolchain dependencies - conditionally include libc
+  # Both GCC and Clang toolchains need gcc-lib (for libstdc++ headers)
+  # Clang additionally needs clang-lib (for builtin headers like stdarg.h)
   localConfigCcDeps = pkgs.runCommand "local_config_cc_toolchain_deps" { } ''
     mkdir -p $out
     echo 'package(default_visibility = ["//visibility:public"])' > $out/BUILD.bazel
     echo 'filegroup(name = "all", srcs = glob(["**/*"]))' >> $out/BUILD.bazel
     ln -s ${effectiveGcc} $out/gcc
     ln -s ${effectiveGcc.cc} $out/gcc-lib
+    ${if isClang then "ln -s ${clangLib} $out/clang-lib" else ""}
     ${if libc != null then "ln -s ${libc} $out/libc" else ""}
     ${if libcDev != null then "ln -s ${libcDev} $out/libc-dev" else ""}
-    ln -s ${binutils} $out/binutils
+    ln -s ${if isClang then effectiveLlvmBintools else binutils} $out/binutils
   '';
 
   # Nix store paths for toolchain and libs (read-only)
