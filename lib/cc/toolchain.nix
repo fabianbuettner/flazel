@@ -52,6 +52,9 @@
   clang ? null,
   # LLVM bintools package (only when compiler = "clang", auto-derived if not provided)
   llvmBintools ? null,
+  # Linker selection: "bfd" (default for gcc), "lld" (default for clang), "gold", "mold"
+  # When null, auto-selects based on compiler
+  linker ? null,
   cStandard ? "c17",
   cxxStandard ? "c++23",
   # Target configuration for cross-compilation
@@ -92,6 +95,57 @@ let
   # LLVM bintools (ar, nm, objdump, etc.)
   effectiveLlvmBintools =
     if llvmBintools != null then llvmBintools else pkgs.llvmPackages_19.bintools-unwrapped;
+
+  # Linker resolution
+  effectiveLinker =
+    if linker != null then
+      linker
+    else if isClang then
+      "lld"
+    else
+      "bfd";
+
+  # Linker integration via bintools override
+  #
+  # The Nix GCC/Clang wrappers prepend bintools-wrapper/bin to PATH, which is
+  # how collect2 finds the linker. To use an alternative linker (mold, lld, gold),
+  # we override the bintools wrapper to include the linker binary (e.g. ld.mold),
+  # then override the compiler to use the new bintools. This works WITH the Nix
+  # wrapper model: collect2 finds ld.mold via PATH, no -B hacks needed.
+  #
+  # bfd and gold are already in standard binutils — no override needed.
+  # lld needs a symlink for GCC toolchains (Clang toolchains already have it).
+  # mold always needs a symlink (external package).
+  linkerBintoolsOverride =
+    {
+      mold = "ln -sf ${pkgs.mold}/bin/ld.mold $out/bin/ld.mold";
+      lld = "ln -sf ${effectiveLlvmBintools}/bin/ld.lld $out/bin/ld.lld";
+    }
+    .${effectiveLinker} or null;
+
+  # Override a compiler's bintools to include the chosen linker
+  withLinker =
+    cc:
+    if linkerBintoolsOverride != null then
+      cc.override {
+        bintools = cc.bintools.override {
+          extraBuildCommands = linkerBintoolsOverride;
+        };
+      }
+    else
+      cc;
+
+  toolchainGcc = withLinker effectiveGcc;
+  toolchainClang = withLinker effectiveClang;
+
+  # -fuse-ld flag for non-default linkers (tells the compiler which linker flavor to use)
+  fuseLinkerFlag =
+    {
+      mold = ''"-fuse-ld=mold",'';
+      lld = ''"-fuse-ld=lld",'';
+      gold = ''"-fuse-ld=gold",'';
+    }
+    .${effectiveLinker} or "";
 
   # Default target configuration based on effectiveStatic parameter
   defaultTarget =
@@ -161,7 +215,7 @@ let
       ''
     else if effectiveStatic then
       ''
-        "-static",
+        ${fuseLinkerFlag}"-static",
         "-Lexternal/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
         "-Lexternal/${depsRepoName}/gcc-lib/lib",
         "-Lexternal/${depsRepoName}/libc/lib",
@@ -171,7 +225,7 @@ let
       ''
     else if isClang then
       ''
-        "-Lexternal/${depsRepoName}/gcc-lib/lib",
+        ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc-lib/lib",
         "-Lexternal/${depsRepoName}/libc/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
@@ -183,7 +237,7 @@ let
       ''
     else
       ''
-        "-Lexternal/${depsRepoName}/gcc/lib/gcc/${targetTriple}/${gccVersion}",
+        ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc/lib/gcc/${targetTriple}/${gccVersion}",
         "-Lexternal/${depsRepoName}/gcc-lib/lib",
         "-Lexternal/${depsRepoName}/libc/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
@@ -294,9 +348,9 @@ let
       # Clang toolchain: symlink clang/LLVM binaries to canonical Bazel names
       ''
         mkdir -p $out/bin
-        ln -s ${effectiveClang}/bin/clang $out/bin/gcc
-        ln -s ${effectiveClang}/bin/clang++ $out/bin/g++
-        ln -s ${effectiveClang}/bin/clang-cpp $out/bin/cpp
+        ln -s ${toolchainClang}/bin/clang $out/bin/gcc
+        ln -s ${toolchainClang}/bin/clang++ $out/bin/g++
+        ln -s ${toolchainClang}/bin/clang-cpp $out/bin/cpp
         # LLVM bintools
         ln -s ${effectiveLlvmBintools}/bin/ar $out/bin/ar
         ln -s ${effectiveLlvmBintools}/bin/llvm-nm $out/bin/nm
@@ -322,14 +376,14 @@ let
         fi
       ''
     else
-      # GCC toolchain: existing logic unchanged
+      # GCC toolchain
       ''
         mkdir -p $out/bin
         # Try prefixed first (cross-compiler), then unprefixed (native)
-        if [ -e ${effectiveGcc}/bin/${targetTriple}-gcc ]; then
-          ln -s ${effectiveGcc}/bin/${targetTriple}-gcc $out/bin/gcc
-          ln -s ${effectiveGcc}/bin/${targetTriple}-g++ $out/bin/g++
-          ln -s ${effectiveGcc}/bin/${targetTriple}-cpp $out/bin/cpp
+        if [ -e ${toolchainGcc}/bin/${targetTriple}-gcc ]; then
+          ln -s ${toolchainGcc}/bin/${targetTriple}-gcc $out/bin/gcc
+          ln -s ${toolchainGcc}/bin/${targetTriple}-g++ $out/bin/g++
+          ln -s ${toolchainGcc}/bin/${targetTriple}-cpp $out/bin/cpp
           # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
           if [ -e ${effectiveGcc.cc}/bin/${targetTriple}-gcov ]; then
             ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/${targetTriple}-gcov"} $out/bin/gcov
@@ -339,9 +393,9 @@ let
             ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
           fi
         else
-          ln -s ${effectiveGcc}/bin/gcc $out/bin/gcc
-          ln -s ${effectiveGcc}/bin/g++ $out/bin/g++
-          ln -s ${effectiveGcc}/bin/cpp $out/bin/cpp
+          ln -s ${toolchainGcc}/bin/gcc $out/bin/gcc
+          ln -s ${toolchainGcc}/bin/g++ $out/bin/g++
+          ln -s ${toolchainGcc}/bin/cpp $out/bin/cpp
           # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
           if [ -e ${effectiveGcc.cc}/bin/gcov ]; then
             ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
