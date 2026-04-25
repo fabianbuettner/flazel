@@ -10,6 +10,10 @@ Hermetic Bazel builds powered by Nix. One command to set up your entire C/C++ to
 - **Cross-compilation**: x86_64, aarch64, riscv64, mips64, arm — multiple toolchains in one shell
 - **Nixpkgs library integration**: declare `nixpkgsLibs = { openssl = pkgs.openssl; }` and use `@openssl//:openssl` in Bazel
 - **Clang dependency checking**: `layering_check` ensures every `#include` comes from a direct `deps` target; `parse_headers` validates headers compile standalone
+- **Hardened by default**: `_GLIBCXX_ASSERTIONS`, `_FORTIFY_SOURCE=3`, `-fstack-protector-strong`, split DWARF, sandbox-safe debug paths — all on, opt out per feature
+- **Warnings**: `warnings` (`-Wall -Wextra`), `warnings_pedantic`, `treat_warnings_as_errors` — opt-in, one knob per noise level
+- **Sanitizers**: `asan`, `ubsan`, `tsan` as Bazel features. Mutual exclusion enforced via `provides=["sanitizer"]`; `asan + ubsan` layering supported
+- **Build-time tuning**: `thin_lto`, `gc_sections` (auto-on for `-c opt`), `hidden_visibility` — opt-in performance features
 - **Code coverage**: gcov and llvm-cov with Bazel coverage integration
 - **Non-BCR dependency management**: archive_override and http_archive deps managed from flake.nix, deduplicated via `--override_module` / `--override_repository`
 - **Offline hermetic builds**: BCR modules and registry metadata pre-fetched into Nix store
@@ -123,7 +127,75 @@ clangCfg = flazel.lib.cc.mkConfig {
 };
 ```
 
-Enables `layering_check`, `module_maps`, and `parse_headers` features in Bazel.
+Adds Clang-only features: `layering_check`, `module_maps`, `parse_headers`, `template_diagnostics`. See [Toolchain Features](#toolchain-features) for the full list.
+
+## Toolchain Features
+
+Compile-time and runtime feature flags wired through Bazel's `--features=` mechanism. Default-on features harden every build. Opt-in features layer per-target, per-config, or per-build.
+
+### Default-on (opt out with `--features=-name`)
+
+| Feature | Flags | Mode |
+|---|---|---|
+| `glibcxx_assertions` | `-D_GLIBCXX_ASSERTIONS` | always |
+| `fortify_source` | `-D_FORTIFY_SOURCE=3` | always |
+| `stack_protector_strong` | `-fstack-protector-strong` | always |
+| `colored_diagnostics` | `-fdiagnostics-color=always` | always |
+| `debug_prefix_map` | `-ffile-prefix-map=/proc/self/cwd=.` | always |
+| `frame_pointer` | `-fno-omit-frame-pointer` | `-c dbg` |
+| `split_debug` | `-gsplit-dwarf` (compile) | `-c dbg` |
+| `gc_sections` | `-ffunction-sections -fdata-sections -Wl,--gc-sections` | `-c opt` |
+
+### Opt-in
+
+| Feature | Flags | Notes |
+|---|---|---|
+| `gdb_index` | `-Wl,--gdb-index` (link) | `-c dbg`; requires gold/lld/mold (not bfd) |
+| `warnings` | `-Wall -Wextra` | |
+| `warnings_pedantic` | adds `-Wpedantic -Wconversion` | requires `warnings` |
+| `treat_warnings_as_errors` | `-Werror` | pairs with `warnings` |
+| `asan` | `-fsanitize=address -fno-omit-frame-pointer` (compile + link) | `provides=["sanitizer"]` |
+| `ubsan` | `-fsanitize=undefined -fno-sanitize-recover=undefined` | layers with asan or tsan |
+| `tsan` | `-fsanitize=thread` (compile + link) | `provides=["sanitizer"]` |
+| `thin_lto` | `-flto=thin` (Clang) / `-flto=auto` (GCC) | linker must support LTO |
+| `hidden_visibility` | `-fvisibility=hidden -fvisibility-inlines-hidden` | |
+| `template_diagnostics` | `-fdiagnostics-show-template-tree -ftemplate-backtrace-limit=0` | Clang only |
+
+### Usage
+
+```bash
+# Strict warning regime
+bazel build //... --features=warnings --features=treat_warnings_as_errors
+
+# Run tests under AddressSanitizer
+bazel test //... --features=asan
+
+# Layer ubsan on top of asan (the canonical LLVM CI configuration)
+bazel test //... --features=asan --features=ubsan
+```
+
+The natural fit is per-config profiles in `.bazelrc`:
+
+```bazelrc
+build:asan --features=asan
+build:asan --features=-tsan
+build:asan --compilation_mode=dbg
+
+build:tsan --features=tsan
+build:tsan --features=-asan
+build:tsan --compilation_mode=dbg
+```
+
+Then `bazel test --config=asan //...` flips the whole project under sanitizer in one flag.
+
+### One trap to know about
+
+Bazel's `--features=` flag takes **one** feature per occurrence. The form `--features=asan,tsan` is parsed as a single feature literally named `asan,tsan` — which doesn't exist, so the build silently runs without sanitizers. Always repeat the flag:
+
+```bash
+--features=asan --features=ubsan      # ✅ both enabled
+--features=asan,ubsan                 # ❌ silently neither
+```
 
 ## Non-BCR Dependencies
 

@@ -554,7 +554,7 @@ let
   '';
 
   ccToolchainConfigBzl = pkgs.writeText "cc_toolchain_config.bzl" ''
-    load("@bazel_tools//tools/cpp:cc_toolchain_config_lib.bzl", "feature", "flag_group", "flag_set", "tool_path")
+    load("@bazel_tools//tools/cpp:cc_toolchain_config_lib.bzl", "feature", "flag_group", "flag_set", "tool_path", "with_feature_set")
     load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "ACTION_NAMES")
 
     _COMPILE_ACTIONS = [
@@ -646,6 +646,232 @@ let
                         flag_groups = [flag_group(flags = ["-g", "-O0"])],
                     )],
                 ),
+                feature(
+                    name = "warnings",
+                    flag_sets = [flag_set(
+                        actions = _COMPILE_ACTIONS,
+                        flag_groups = [flag_group(flags = [
+                            "-Wall",
+                            "-Wextra",
+                        ])],
+                    )],
+                ),
+                feature(
+                    name = "warnings_pedantic",
+                    flag_sets = [flag_set(
+                        actions = _COMPILE_ACTIONS,
+                        flag_groups = [flag_group(flags = [
+                            "-Wpedantic",
+                            "-Wconversion",
+                            "-Wshadow",
+                            "-Wnon-virtual-dtor",
+                            "-Wold-style-cast",
+                            "-Wcast-align",
+                            "-Woverloaded-virtual",
+                            "-Wdouble-promotion",
+                            "-Wformat=2",
+                        ])],
+                    )],
+                ),
+                feature(
+                    name = "treat_warnings_as_errors",
+                    flag_sets = [flag_set(
+                        actions = _COMPILE_ACTIONS,
+                        flag_groups = [flag_group(flags = ["-Werror"])],
+                    )],
+                ),
+                feature(
+                    name = "glibcxx_assertions",
+                    enabled = True,
+                    flag_sets = [flag_set(
+                        actions = _CXX_ACTIONS,
+                        flag_groups = [flag_group(flags = ["-D_GLIBCXX_ASSERTIONS"])],
+                    )],
+                ),
+                feature(
+                    name = "fortify_source",
+                    enabled = True,
+                    flag_sets = [flag_set(
+                        actions = _COMPILE_ACTIONS,
+                        flag_groups = [flag_group(flags = ["-D_FORTIFY_SOURCE=3"])],
+                    )],
+                ),
+                feature(
+                    name = "stack_protector_strong",
+                    enabled = True,
+                    flag_sets = [
+                        flag_set(
+                            actions = _COMPILE_ACTIONS,
+                            flag_groups = [flag_group(flags = ["-fstack-protector-strong"])],
+                        ),
+                        flag_set(
+                            actions = _LINK_ACTIONS,
+                            flag_groups = [flag_group(flags = ["-fstack-protector-strong"])],
+                        ),
+                    ],
+                ),
+                feature(
+                    name = "asan",
+                    provides = ["sanitizer"],
+                    flag_sets = [
+                        flag_set(
+                            actions = _COMPILE_ACTIONS,
+                            flag_groups = [flag_group(flags = [
+                                "-fsanitize=address",
+                                "-fno-omit-frame-pointer",
+                                "-fno-sanitize-recover=all",
+                            ])],
+                        ),
+                        flag_set(
+                            actions = _LINK_ACTIONS,
+                            flag_groups = [flag_group(flags = ["-fsanitize=address"])],
+                        ),
+                    ],
+                ),
+                feature(
+                    name = "ubsan",
+                    flag_sets = [
+                        flag_set(
+                            actions = _COMPILE_ACTIONS,
+                            flag_groups = [flag_group(flags = [
+                                "-fsanitize=undefined",
+                                "-fno-sanitize-recover=undefined",
+                            ])],
+                        ),
+                        flag_set(
+                            actions = _LINK_ACTIONS,
+                            flag_groups = [flag_group(flags = ["-fsanitize=undefined"])],
+                        ),
+                    ],
+                ),
+                feature(
+                    name = "tsan",
+                    provides = ["sanitizer"],
+                    flag_sets = [
+                        flag_set(
+                            actions = _COMPILE_ACTIONS,
+                            flag_groups = [flag_group(flags = [
+                                "-fsanitize=thread",
+                                "-fno-omit-frame-pointer",
+                            ])],
+                        ),
+                        flag_set(
+                            actions = _LINK_ACTIONS,
+                            flag_groups = [flag_group(flags = ["-fsanitize=thread"])],
+                        ),
+                    ],
+                ),
+                feature(
+                    name = "thin_lto",
+                    flag_sets = [
+                        flag_set(
+                            actions = _COMPILE_ACTIONS,
+                            flag_groups = [flag_group(flags = [
+                                "${if isClang then "-flto=thin" else "-flto=auto"}",
+                            ])],
+                        ),
+                        flag_set(
+                            actions = _LINK_ACTIONS,
+                            flag_groups = [flag_group(flags = [
+                                "${if isClang then "-flto=thin" else "-flto=auto"}",
+                            ])],
+                        ),
+                    ],
+                ),
+                feature(
+                    name = "gc_sections",
+                    enabled = True,
+                    flag_sets = [
+                        flag_set(
+                            actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                            flag_groups = [flag_group(flags = [
+                                "-ffunction-sections",
+                                "-fdata-sections",
+                            ])],
+                            with_features = [with_feature_set(features = ["opt"])],
+                        ),
+                        flag_set(
+                            actions = _LINK_ACTIONS,
+                            flag_groups = [flag_group(flags = ["-Wl,--gc-sections"])],
+                            with_features = [with_feature_set(features = ["opt"])],
+                        ),
+                    ],
+                ),
+                feature(
+                    name = "hidden_visibility",
+                    flag_sets = [flag_set(
+                        actions = _CXX_ACTIONS,
+                        flag_groups = [flag_group(flags = [
+                            "-fvisibility=hidden",
+                            "-fvisibility-inlines-hidden",
+                        ])],
+                    )],
+                ),
+                feature(
+                    name = "split_debug",
+                    enabled = True,
+                    flag_sets = [flag_set(
+                        actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                        flag_groups = [flag_group(flags = ["-gsplit-dwarf"])],
+                        with_features = [with_feature_set(features = ["dbg"])],
+                    )],
+                ),
+                feature(
+                    # -Wl,--gdb-index requires gold, lld, or mold; ld.bfd does not support it.
+                    # Off by default so projects that link with bfd (or run `bazel coverage`,
+                    # which forces dbg mode) do not break. Opt in via `--features=gdb_index`.
+                    name = "gdb_index",
+                    enabled = False,
+                    flag_sets = [flag_set(
+                        actions = _LINK_ACTIONS,
+                        flag_groups = [flag_group(flags = ["-Wl,--gdb-index"])],
+                        with_features = [with_feature_set(features = ["dbg"])],
+                    )],
+                ),
+                feature(
+                    name = "colored_diagnostics",
+                    enabled = True,
+                    flag_sets = [flag_set(
+                        actions = _COMPILE_ACTIONS,
+                        flag_groups = [flag_group(flags = ["-fdiagnostics-color=always"])],
+                    )],
+                ),
+                feature(
+                    name = "debug_prefix_map",
+                    enabled = True,
+                    flag_sets = [flag_set(
+                        actions = _COMPILE_ACTIONS,
+                        flag_groups = [flag_group(flags = [
+                            "-ffile-prefix-map=/proc/self/cwd=.",
+                        ])],
+                    )],
+                ),
+                feature(
+                    name = "frame_pointer",
+                    enabled = True,
+                    flag_sets = [flag_set(
+                        actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                        flag_groups = [flag_group(flags = ["-fno-omit-frame-pointer"])],
+                        with_features = [with_feature_set(features = ["dbg"])],
+                    )],
+                ),
+    ${
+      if isClang then
+        ''
+          feature(
+              name = "template_diagnostics",
+              flag_sets = [flag_set(
+                  actions = _CXX_ACTIONS,
+                  flag_groups = [flag_group(flags = [
+                      "-fdiagnostics-show-template-tree",
+                      "-ftemplate-backtrace-limit=0",
+                  ])],
+              )],
+          ),
+        ''
+      else
+        ""
+    }
     ${clangFeatures}        ],
         )
 
