@@ -137,12 +137,29 @@ let
     )}
   '';
 
+  # Selective lib/ tree: only std library binaries, not rust-src.
+  # cargo-bazel discovers Cargo.toml files in rust-src and rejects them.
   localConfigRust = pkgs.runCommand "local_config_rust_${toolchainName}" { } ''
     mkdir -p $out
 
     cp ${rustToolchainBuild} $out/BUILD.bazel
     ln -s ${rustToolchain}/bin $out/bin
-    ln -s ${rustToolchain}/lib $out/lib
+
+    # Recreate lib/ structure with only what Bazel needs
+    mkdir -p $out/lib/rustlib
+    # Symlink top-level .so/.dylib files (rustc's own libraries)
+    for f in ${rustToolchain}/lib/*.so ${rustToolchain}/lib/*.dylib; do
+      [ -e "$f" ] && ln -s "$f" $out/lib/
+    done
+    # Symlink each target's lib/ directory (contains .rlib, .a, .so)
+    for target_dir in ${rustToolchain}/lib/rustlib/*/; do
+      target=$(basename "$target_dir")
+      # Skip src/ and other non-target directories
+      if [ -d "$target_dir/lib" ]; then
+        mkdir -p $out/lib/rustlib/$target
+        ln -s "$target_dir/lib" $out/lib/rustlib/$target/lib
+      fi
+    done
   '';
 
   bazelNixDeps = pkgs.runCommand "bazel-nix-rust-deps-${toolchainName}" { } ''
