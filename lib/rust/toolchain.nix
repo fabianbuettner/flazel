@@ -121,7 +121,9 @@ let
                 osConstraint =
                   if os == "linux" then
                     "@platforms//os:linux"
-                  else if os == "apple" then
+                  else if os == "ios" then
+                    "@platforms//os:ios"
+                  else if os == "macos" || os == "darwin" then
                     "@platforms//os:macos"
                   else if os == "unknown" && builtins.match ".*musl.*" target != null then
                     "@platforms//os:linux"
