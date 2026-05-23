@@ -77,6 +77,16 @@ let
         srcs = glob(["lib/rustlib/${execTriple}/lib/*.so", "lib/rustlib/${execTriple}/lib/*.dylib", "lib/*.so", "lib/*.dylib"]),
     )
 
+    filegroup(
+        name = "llvm_cov",
+        srcs = glob(["lib/rustlib/${execTriple}/bin/llvm-cov"]),
+    )
+
+    filegroup(
+        name = "llvm_profdata",
+        srcs = glob(["lib/rustlib/${execTriple}/bin/llvm-profdata"]),
+    )
+
     ${builtins.concatStringsSep "\n" (
       map (target: ''
         rust_stdlib_filegroup(
@@ -93,6 +103,8 @@ let
             rustfmt = ":rustfmt",
             rustc_lib = ":rustc_lib",
             rust_std = ":rust_std_${builtins.replaceStrings [ "-" ] [ "_" ] target}",
+            llvm_cov = ":llvm_cov",
+            llvm_profdata = ":llvm_profdata",
             exec_triple = "${execTriple}",
             target_triple = "${target}",
             binary_ext = "",
@@ -153,13 +165,17 @@ let
     for f in ${rustToolchain}/lib/*.so ${rustToolchain}/lib/*.dylib; do
       [ -e "$f" ] && ln -s "$f" $out/lib/
     done
-    # Symlink each target's lib/ directory (contains .rlib, .a, .so)
+    # Symlink each target's lib/ and bin/ directories
     for target_dir in ${rustToolchain}/lib/rustlib/*/; do
       target=$(basename "$target_dir")
-      # Skip src/ and other non-target directories
       if [ -d "$target_dir/lib" ]; then
         mkdir -p $out/lib/rustlib/$target
         ln -s "$target_dir/lib" $out/lib/rustlib/$target/lib
+      fi
+      # bin/ contains llvm-cov, llvm-profdata (from llvm-tools-preview)
+      if [ -d "$target_dir/bin" ]; then
+        mkdir -p $out/lib/rustlib/$target
+        ln -s "$target_dir/bin" $out/lib/rustlib/$target/bin
       fi
     done
   '';
