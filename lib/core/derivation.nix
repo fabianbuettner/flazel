@@ -76,6 +76,9 @@ rec {
           inherit caches flazelPath;
           extraSetup = extraDepsSetup;
         }}
+        # Point Bazel at pre-fetched caches (no network in Nix sandbox)
+        echo "build --registry=file://$(pwd)/.nix-bazel-deps/registry" >> .nix-bazel-deps/.bazelrc.nix
+        echo "build --repository_cache=$(pwd)/.nix-bazel-deps/repo-cache" >> .nix-bazel-deps/.bazelrc.nix
         bazel --output_user_root=${bazelOutputBase} ${bazelCommand}
       '';
     };
