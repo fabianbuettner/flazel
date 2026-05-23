@@ -7,6 +7,7 @@
 # Structure:
 #   lib/core/  - Language-agnostic core (BCR caching, generic derivations)
 #   lib/cc/    - C/C++ specific (toolchain, library repos)
+#   lib/rust/  - Rust specific (toolchain, crate universe integration)
 #
 # Usage in consuming flakes:
 #   inputs.flazel.url = "github:fabianbuettner/flazel";
@@ -19,6 +20,8 @@
     flake-utils.url = "github:numtide/flake-utils";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -27,6 +30,7 @@
       nixpkgs,
       flake-utils,
       treefmt-nix,
+      rust-overlay,
     }:
     let
       # Automatically inject flazelPath into functions that need it
@@ -65,12 +69,31 @@
         # CC-specific dev shell (auto-inject flazelPath)
         mkDevShell = withFlazelPath (import ./lib/cc/dev-shell.nix);
       };
+
+      # Rust specific library functions
+      rustLib = {
+        # Rust toolchain configuration
+        mkConfig = import ./lib/rust/toolchain.nix;
+
+        # Rust crate_universe helper
+        mkCargoBazel = import ./lib/rust/cargo-bazel.nix;
+
+        # Rust-specific derivation (auto-inject flazelPath)
+        mkDerivation = withFlazelPath (import ./lib/rust/derivation.nix);
+
+        # Rust-specific dev shell (auto-inject flazelPath)
+        mkDevShell = withFlazelPath (import ./lib/rust/dev-shell.nix);
+      };
     in
     {
-      # Expose library functions
+      # Expose library functions and rust-overlay for consumers
       lib = coreLib // {
         cc = ccLib;
+        rust = rustLib;
       };
+
+      # Re-export rust-overlay so consumers can apply it to their pkgs
+      inherit (rust-overlay) overlays;
     }
     // flake-utils.lib.eachDefaultSystem (
       system:
@@ -123,6 +146,10 @@
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/nixpkgs-repo.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/derivation.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/dev-shell.nix} > /dev/null
+            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/toolchain.nix} > /dev/null
+            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/dev-shell.nix} > /dev/null
+            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/derivation.nix} > /dev/null
+            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/cargo-bazel.nix} > /dev/null
             touch $out
           '';
         };
