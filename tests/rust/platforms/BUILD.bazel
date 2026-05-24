@@ -1,0 +1,76 @@
+load("@rules_cc//cc:defs.bzl", "cc_toolchain")
+load(":stub_cc.bzl", "stub_cc_config")
+
+platform(
+    name = "aarch64-apple-ios",
+    constraint_values = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:ios",
+    ],
+)
+
+platform(
+    name = "aarch64-unknown-linux-musl",
+    constraint_values = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+    ],
+)
+
+filegroup(name = "empty")
+
+stub_cc_config(name = "stub_cc_config")
+
+cc_toolchain(
+    name = "cc_stub_ios_impl",
+    all_files = ":empty",
+    ar_files = ":empty",
+    as_files = ":empty",
+    compiler_files = ":empty",
+    dwp_files = ":empty",
+    linker_files = ":empty",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    toolchain_config = ":stub_cc_config",
+)
+
+cc_toolchain(
+    name = "cc_stub_musl_impl",
+    all_files = ":empty",
+    ar_files = ":empty",
+    as_files = ":empty",
+    compiler_files = ":empty",
+    dwp_files = ":empty",
+    linker_files = ":empty",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    toolchain_config = ":stub_cc_config",
+)
+
+toolchain(
+    name = "cc_stub_ios",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:ios",
+    ],
+    toolchain = ":cc_stub_ios_impl",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+toolchain(
+    name = "cc_stub_musl",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+    ],
+    toolchain = ":cc_stub_musl_impl",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)

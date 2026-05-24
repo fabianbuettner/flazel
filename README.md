@@ -1,8 +1,10 @@
 # flazel
 
-Hermetic Bazel builds powered by Nix. One command to set up your entire C/C++ toolchain — compilers, linkers, libraries, cross-compilers — with Bazel's incremental builds on top.
+Hermetic Bazel builds powered by Nix. One command to set up your entire toolchain — C/C++ or Rust — with Bazel's incremental builds on top.
 
 ## Features
+
+### C/C++
 
 - **GCC and Clang** with configurable versions
 - **Linker selection**: mold, lld, gold, bfd — integrated via Nix bintools override
@@ -15,11 +17,24 @@ Hermetic Bazel builds powered by Nix. One command to set up your entire C/C++ to
 - **Sanitizers**: `asan`, `ubsan`, `tsan` as Bazel features. Mutual exclusion enforced via `provides=["sanitizer"]`; `asan + ubsan` layering supported
 - **Build-time tuning**: `thin_lto`, `gc_sections` (auto-on for `-c opt`), `hidden_visibility` — opt-in performance features
 - **Code coverage**: gcov and llvm-cov with Bazel coverage integration
-- **Non-BCR dependency management**: archive_override and http_archive deps managed from flake.nix, deduplicated via `--override_module` / `--override_repository`
-- **Offline hermetic builds**: BCR modules and registry metadata pre-fetched into Nix store
 - **C/C++ standard control**: configurable per toolchain (default: C17, C++23)
 
-## Quick Start
+### Rust
+
+- **Nix-provided rustc** wired into Bazel via custom toolchain (NixOS cannot run downloaded rustc binaries)
+- **Configurable Rust version** and target triples
+- **Cross-compilation**: `aarch64-apple-ios`, `aarch64-unknown-linux-musl`, and any target rustc supports
+- **crate_universe** integration for Cargo-to-Bazel dependency resolution
+- **Dev shell**: rustc, cargo, clippy, rustfmt, nextest, cargo-llvm-cov, cargo-deny, bacon
+- **Bazel rules**: `rust_library`, `rust_binary`, `rust_test`, `rust_clippy`, `rustfmt_test`
+- **Coverage**: `bazel coverage` with llvm-cov instrumentation
+
+### Shared
+
+- **Offline hermetic builds**: BCR modules and registry metadata pre-fetched into Nix store
+- **Non-BCR dependency management**: archive_override and http_archive deps managed from flake.nix
+
+## Quick Start (C/C++)
 
 ```nix
 # flake.nix
@@ -59,6 +74,79 @@ nix develop        # Enter hermetic shell with GCC 15 + mold
 bazel build //...  # Incremental build
 bazel test //...   # Run tests
 ```
+
+## Quick Start (Rust)
+
+```nix
+# flake.nix
+{
+  inputs.flazel.url = "github:fabianbuettner/flazel";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.rust-overlay.url = "github:oxalica/rust-overlay";
+
+  outputs = { self, nixpkgs, flazel, rust-overlay, ... }:
+    let
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        overlays = [ rust-overlay.overlays.default ];
+      };
+
+      ccCfg = flazel.lib.cc.mkConfig { inherit pkgs; };
+
+      rustCfg = flazel.lib.rust.mkConfig {
+        inherit pkgs;
+        rustVersion = "1.85.0";
+        targets = [
+          "x86_64-unknown-linux-gnu"
+          "aarch64-apple-ios"
+          "aarch64-unknown-linux-musl"
+        ];
+      };
+
+      caches = flazel.lib.mkBcrCaches {
+        inherit pkgs;
+        lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+      };
+    in {
+      devShells.x86_64-linux.default = flazel.lib.rust.mkDevShell {
+        inherit pkgs caches;
+        flazelPath = flazel.outPath;
+        toolchains = { default = rustCfg; };
+        ccToolchains = { default = ccCfg; };
+      };
+    };
+}
+```
+
+The CC toolchain is required alongside Rust — Rust needs a linker, and on NixOS it must come from Nix.
+
+The consumer's `MODULE.bazel` wires the Nix-provided toolchains into Bazel:
+
+```starlark
+bazel_dep(name = "rules_rust", version = "0.56.0")
+bazel_dep(name = "rules_cc", version = "0.1.4")
+bazel_dep(name = "flazel", version = "0.0.1")
+
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(nix_cc, "local_config_cc_default", "local_config_cc_default_deps")
+
+nix_rust = use_extension("@flazel//bazel:nix_rust.bzl", "nix_rust")
+nix_rust.toolchain(name = "default")
+use_repo(nix_rust, "local_config_rust_default")
+register_toolchains("@local_config_rust_default//:all")
+
+host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
+host_tools.host_tools(edition = "2021", version = "1.85.0")
+```
+
+```bash
+nix develop        # Enter hermetic shell with rustc 1.85.0, cargo, clippy, ...
+bazel build //...  # Build with Nix-provided rustc
+bazel test //...   # Run tests
+```
+
+A complete working example is in [`tests/rust/`](tests/rust/).
 
 ## How It Works
 
@@ -256,3 +344,5 @@ nix build  # Identical output every time
 
 - [Nix Flakes](https://nixos.wiki/wiki/Flakes) — Hermetic, reproducible package management
 - [Bazel](https://bazel.build/) — Scalable, incremental build system
+- [rules_rust](https://github.com/bazelbuild/rules_rust) — Bazel rules for Rust
+- [rust-overlay](https://github.com/oxalica/rust-overlay) — Nix overlay for Rust toolchains

@@ -1,0 +1,46 @@
+module(
+    name = "flazel-rust-test",
+    version = "0.0.1",
+)
+
+bazel_dep(name = "rules_rust", version = "0.56.0")
+bazel_dep(name = "rules_cc", version = "0.1.4")
+bazel_dep(name = "flazel", version = "0.0.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+# CC toolchain (provides linker for Rust on NixOS)
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(nix_cc, "local_config_cc_default", "local_config_cc_default_deps")
+
+# Rust toolchain (Nix-provided rustc)
+nix_rust = use_extension("@flazel//bazel:nix_rust.bzl", "nix_rust")
+nix_rust.toolchain(name = "default")
+use_repo(nix_rust, "local_config_rust_default")
+register_toolchains("@local_config_rust_default//:all")
+register_toolchains("//platforms:cc_stub_ios")
+register_toolchains("//platforms:cc_stub_musl")
+
+# Host tools for crate_universe (must match our Nix toolchain version)
+host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
+host_tools.host_tools(
+    edition = "2021",
+    version = "1.85.0",
+)
+
+# Crate dependencies from Cargo.toml
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = [
+        "//:Cargo.toml",
+        "//hello:Cargo.toml",
+    ],
+)
+use_repo(crate, "crates")

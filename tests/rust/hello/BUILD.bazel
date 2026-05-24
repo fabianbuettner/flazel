@@ -1,0 +1,61 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy", "rust_library", "rust_test", "rustfmt_test")
+
+rust_library(
+    name = "hello",
+    srcs = [
+        "src/lib.rs",
+        "src/no_std_compat.rs",
+    ],
+    deps = [
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+    ],
+)
+
+rust_binary(
+    name = "hello_bin",
+    srcs = ["src/main.rs"],
+    deps = [":hello"],
+)
+
+rust_test(
+    name = "hello_test",
+    crate = ":hello",
+    deps = [
+        "@crates//:proptest",
+        "@crates//:tempfile",
+    ],
+)
+
+rust_library(
+    name = "no_std_check",
+    srcs = [
+        "src/no_std_check.rs",
+        "src/no_std_compat.rs",
+    ],
+    crate_root = "src/no_std_check.rs",
+)
+
+rust_test(
+    name = "no_std_check_test",
+    crate = ":no_std_check",
+)
+
+rust_clippy(
+    name = "hello_clippy",
+    deps = [
+        ":hello",
+        ":hello_bin",
+        ":no_std_check",
+    ],
+)
+
+rustfmt_test(
+    name = "hello_rustfmt",
+    targets = [
+        ":hello",
+        ":hello_bin",
+        ":no_std_check",
+    ],
+)

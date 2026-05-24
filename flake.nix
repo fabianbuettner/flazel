@@ -120,7 +120,7 @@
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.buildifier
-            pkgs.nixfmt-rfc-style
+            pkgs.nixfmt
           ];
           shellHook = ''
             echo "flazel development shell"
