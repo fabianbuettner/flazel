@@ -1,38 +1,41 @@
 # flazel
 
-Hermetic Bazel builds powered by Nix. One command to set up your entire toolchain — C/C++ or Rust — with Bazel's incremental builds on top.
+Your compiler, your linker, your libc. Pinned by hash, sandboxed by Nix, cached by Bazel.
 
-## Features
+`nix develop` gives you a hermetic toolchain. `bazel build` gives you file-level incrementality. Nothing is downloaded at build time. Nothing depends on what's installed on the host. The only prerequisite is Nix itself.
+
+The same toolchain runs on every developer machine and in CI. "Works on my machine" becomes a tautology.
+
+## What you get
 
 ### C/C++
 
-- **GCC and Clang** with configurable versions
-- **Linker selection**: mold, lld, gold, bfd — integrated via Nix bintools override
+- **GCC or Clang**, any version nixpkgs carries
+- **Linker selection**: mold, lld, gold, bfd (integrated via Nix bintools override, not `-B` hacks)
 - **Static linking** with musl, **dynamic linking** with glibc, **bare metal** with no libc
-- **Cross-compilation**: x86_64, aarch64, riscv64, mips64, arm — multiple toolchains in one shell
-- **Nixpkgs library integration**: declare `nixpkgsLibs = { openssl = pkgs.openssl; }` and use `@openssl//:openssl` in Bazel
-- **Clang dependency checking**: `layering_check` ensures every `#include` comes from a direct `deps` target; `parse_headers` validates headers compile standalone
-- **Hardened by default**: `_GLIBCXX_ASSERTIONS`, `_FORTIFY_SOURCE=3`, `-fstack-protector-strong`, split DWARF, sandbox-safe debug paths — all on, opt out per feature
-- **Warnings**: `warnings` (`-Wall -Wextra`), `warnings_pedantic`, `treat_warnings_as_errors` — opt-in, one knob per noise level
-- **Sanitizers**: `asan`, `ubsan`, `tsan` as Bazel features. Mutual exclusion enforced via `provides=["sanitizer"]`; `asan + ubsan` layering supported
-- **Build-time tuning**: `thin_lto`, `gc_sections` (auto-on for `-c opt`), `hidden_visibility` — opt-in performance features
-- **Code coverage**: gcov and llvm-cov with Bazel coverage integration
-- **C/C++ standard control**: configurable per toolchain (default: C17, C++23)
+- **Cross-compilation**: x86_64, aarch64, riscv64, mips64, arm. Multiple toolchains in one shell.
+- **Nixpkgs libraries**: declare `nixpkgsLibs = { openssl = pkgs.openssl; }`, use `@openssl//:openssl` in Bazel. Transitive deps resolved automatically.
+- **Clang dependency checking**: `layering_check` ensures every `#include` comes from a direct `deps` target. `parse_headers` validates headers compile standalone.
+- **Hardened by default**: `_GLIBCXX_ASSERTIONS`, `_FORTIFY_SOURCE=3`, `-fstack-protector-strong`, split DWARF, sandbox-safe debug prefix maps. All on. Opt out per feature.
+- **Sanitizers**: `asan`, `ubsan`, `tsan` as Bazel features with mutual exclusion via `provides=["sanitizer"]`
+- **Build tuning**: `thin_lto`, `gc_sections`, `hidden_visibility`, `gdb_index`
+- **Coverage**: gcov and llvm-cov, integrated with `bazel coverage`
+- **Standard control**: configurable per toolchain (default: C17, C++23)
 
 ### Rust
 
-- **Nix-provided rustc** wired into Bazel via custom toolchain (NixOS cannot run downloaded rustc binaries)
-- **Configurable Rust version** and target triples
-- **Cross-compilation**: `aarch64-apple-ios`, `aarch64-unknown-linux-musl`, and any target rustc supports
-- **crate_universe** integration: Nix-built `cargo-bazel` for Cargo-to-Bazel dependency resolution
+- **Nix-provided rustc** wired into Bazel (NixOS cannot run downloaded rustc binaries; flazel builds the toolchain from `rust-overlay` and threads it through)
+- **Configurable version** and target triples
+- **Cross-compilation**: `aarch64-apple-ios`, `aarch64-unknown-linux-musl`, anything rustc supports
+- **crate_universe**: Nix-built `cargo-bazel` so Cargo dependency resolution works on NixOS
 - **Dev shell**: rustc, cargo, clippy, rustfmt, nextest, cargo-llvm-cov, cargo-deny, bacon
-- **Bazel rules**: `rust_library`, `rust_binary`, `rust_test`, `rust_clippy`, `rustfmt_test`
 - **Coverage**: `bazel coverage` with llvm-cov instrumentation
 
-### Shared
+### Both languages
 
-- **Offline hermetic builds**: BCR modules and registry metadata pre-fetched into Nix store
-- **Non-BCR dependency management**: archive_override and http_archive deps managed from flake.nix
+- **Offline hermetic builds**: BCR modules and registry metadata pre-fetched into the Nix store. After `nix develop`, zero network calls.
+- **Non-BCR deps**: `archive_override` and `http_archive` dependencies declared in `flake.nix`, not duplicated in `MODULE.bazel`.
+- **One source of truth**: `flake.lock` pins nixpkgs. `MODULE.bazel.lock` pins Bazel deps. `flake.nix` pins everything else.
 
 ## Quick Start (C/C++)
 
@@ -70,8 +73,8 @@ Hermetic Bazel builds powered by Nix. One command to set up your entire toolchai
 ```
 
 ```bash
-nix develop        # Enter hermetic shell with GCC 15 + mold
-bazel build //...  # Incremental build
+nix develop        # Hermetic shell with everything declared above
+bazel build //...  # Incremental build, cached
 bazel test //...   # Run tests
 ```
 
@@ -107,6 +110,7 @@ bazel test //...   # Run tests
         inherit pkgs;
         lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
       };
+
       # Optional: for projects using crate_universe (Cargo deps in Bazel)
       cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs; };
     in {
@@ -120,7 +124,7 @@ bazel test //...   # Run tests
 }
 ```
 
-The CC toolchain is required alongside Rust — Rust needs a linker, and on NixOS it must come from Nix.
+Rust on NixOS needs a CC toolchain too (for linking). flazel provides both from Nix, so the linker binary actually runs.
 
 The consumer's `MODULE.bazel` wires the Nix-provided toolchains into Bazel:
 
@@ -152,25 +156,25 @@ use_repo(crate, "crates")
 ```
 
 ```bash
-nix develop        # Enter hermetic shell with rustc 1.85.0, cargo, clippy, ...
+nix develop        # rustc 1.85.0 + cargo + clippy + cargo-bazel, hermetic
 bazel build //...  # Build with Nix-provided rustc
 bazel test //...   # Run tests
 ```
 
 A complete working example is in [`tests/rust/`](tests/rust/).
 
-## How It Works
+## How it works
 
-flazel assigns each tool to its strength:
+Each tool does what it's best at:
 
-| Layer | Tool | Responsibility |
-|-------|------|----------------|
-| Environment | Nix | Toolchain provisioning, dependency pinning, hermeticity |
-| Compilation | Bazel | Dependency graph, incremental builds, caching |
+| Layer | Tool | Job |
+|-------|------|-----|
+| Environment | Nix | Provision toolchains, pin versions, guarantee hermeticity |
+| Build | Bazel | Track the dependency graph, cache at file granularity, parallelize |
 
-Nix provides pinned compilers, linkers, libraries, and libc as reproducible derivations. Bazel provides file-level dependency tracking and parallel incremental builds. Both `nix develop` and `nix build` use identical toolchains — no environment drift between development and CI.
+Nix produces reproducible store paths for compilers, linkers, libraries, and libc. Bazel consumes them as external repositories. `nix develop` and `nix build` use identical toolchains. No drift between dev and CI.
 
-## Cross-Compilation
+## Cross-compilation
 
 Multiple toolchains coexist in a single dev shell:
 
@@ -206,13 +210,21 @@ shell = flazel.lib.cc.mkDevShell {
 ```
 
 ```bash
-bazel build //...                                          # Build for host
-bazel build //... --platforms=@local_config_cc_aarch64//:platform  # Cross-compile
+bazel build //...                                                # Host
+bazel build //... --platforms=@local_config_cc_aarch64//:platform # aarch64-musl
 ```
 
-Libraries declared via `nixpkgsLibs` are automatically available for all toolchains with platform-aware selection.
+Libraries declared via `nixpkgsLibs` are available for all toolchains with platform-aware `select()`.
 
-## Clang Toolchain
+For Rust cross-targets that lack a real CC toolchain (e.g., iOS from a Linux host), declare a stub:
+
+```starlark
+nix_cc.stub(name = "ios", target_cpu = "aarch64", target_os = "ios")
+```
+
+This satisfies Bazel's toolchain resolution without providing an actual compiler.
+
+## Clang toolchain
 
 ```nix
 clangCfg = flazel.lib.cc.mkConfig {
@@ -226,15 +238,15 @@ clangCfg = flazel.lib.cc.mkConfig {
 };
 ```
 
-Adds Clang-only features: `layering_check`, `module_maps`, `parse_headers`, `template_diagnostics`. See [Toolchain Features](#toolchain-features) for the full list.
+Unlocks Clang-only features: `layering_check`, `module_maps`, `parse_headers`, `template_diagnostics`. See [Toolchain features](#toolchain-features).
 
-## Toolchain Features
+## Toolchain features
 
-Compile-time and runtime feature flags wired through Bazel's `--features=` mechanism. Default-on features harden every build. Opt-in features layer per-target, per-config, or per-build.
+Bazel `--features=` flags wired to compiler/linker options. Defaults harden every build. Opt-in features layer per-target or per-config.
 
 ### Default-on (opt out with `--features=-name`)
 
-| Feature | Flags | Mode |
+| Feature | Flags | When |
 |---|---|---|
 | `glibcxx_assertions` | `-D_GLIBCXX_ASSERTIONS` | always |
 | `fortify_source` | `-D_FORTIFY_SOURCE=3` | always |
@@ -242,38 +254,38 @@ Compile-time and runtime feature flags wired through Bazel's `--features=` mecha
 | `colored_diagnostics` | `-fdiagnostics-color=always` | always |
 | `debug_prefix_map` | `-ffile-prefix-map=/proc/self/cwd=.` | always |
 | `frame_pointer` | `-fno-omit-frame-pointer` | `-c dbg` |
-| `split_debug` | `-gsplit-dwarf` (compile) | `-c dbg` |
+| `split_debug` | `-gsplit-dwarf` | `-c dbg` |
 | `gc_sections` | `-ffunction-sections -fdata-sections -Wl,--gc-sections` | `-c opt` |
 
 ### Opt-in
 
 | Feature | Flags | Notes |
 |---|---|---|
-| `gdb_index` | `-Wl,--gdb-index` (link) | `-c dbg`; requires gold/lld/mold (not bfd) |
+| `gdb_index` | `-Wl,--gdb-index` | `-c dbg`; needs gold, lld, or mold |
 | `warnings` | `-Wall -Wextra` | |
-| `warnings_pedantic` | adds `-Wpedantic -Wconversion` | requires `warnings` |
-| `treat_warnings_as_errors` | `-Werror` | pairs with `warnings` |
-| `asan` | `-fsanitize=address -fno-omit-frame-pointer` (compile + link) | `provides=["sanitizer"]` |
+| `warnings_pedantic` | adds `-Wpedantic -Wconversion` | |
+| `treat_warnings_as_errors` | `-Werror` | |
+| `asan` | `-fsanitize=address -fno-omit-frame-pointer` | `provides=["sanitizer"]` |
 | `ubsan` | `-fsanitize=undefined -fno-sanitize-recover=undefined` | layers with asan or tsan |
-| `tsan` | `-fsanitize=thread` (compile + link) | `provides=["sanitizer"]` |
-| `thin_lto` | `-flto=thin` (Clang) / `-flto=auto` (GCC) | linker must support LTO |
+| `tsan` | `-fsanitize=thread` | `provides=["sanitizer"]` |
+| `thin_lto` | `-flto=thin` (Clang) / `-flto=auto` (GCC) | |
 | `hidden_visibility` | `-fvisibility=hidden -fvisibility-inlines-hidden` | |
-| `template_diagnostics` | `-fdiagnostics-show-template-tree -ftemplate-backtrace-limit=0` | Clang only |
+| `template_diagnostics` | `-fdiagnostics-show-template-tree` | Clang only |
 
 ### Usage
 
 ```bash
-# Strict warning regime
+# Wall + Werror
 bazel build //... --features=warnings --features=treat_warnings_as_errors
 
-# Run tests under AddressSanitizer
+# AddressSanitizer
 bazel test //... --features=asan
 
-# Layer ubsan on top of asan (the canonical LLVM CI configuration)
+# ASan + UBSan (the canonical LLVM CI combo)
 bazel test //... --features=asan --features=ubsan
 ```
 
-The natural fit is per-config profiles in `.bazelrc`:
+Per-config profiles in `.bazelrc`:
 
 ```bazelrc
 build:asan --features=asan
@@ -285,20 +297,20 @@ build:tsan --features=-asan
 build:tsan --compilation_mode=dbg
 ```
 
-Then `bazel test --config=asan //...` flips the whole project under sanitizer in one flag.
+Then `bazel test --config=asan //...` flips the entire project into sanitizer mode.
 
-### One trap to know about
+### Trap
 
-Bazel's `--features=` flag takes **one** feature per occurrence. The form `--features=asan,tsan` is parsed as a single feature literally named `asan,tsan` — which doesn't exist, so the build silently runs without sanitizers. Always repeat the flag:
+`--features=asan,tsan` is **not** two features. Bazel parses it as one feature literally named `asan,tsan`. It doesn't exist, so nothing happens. Silently. Always repeat the flag:
 
 ```bash
---features=asan --features=ubsan      # ✅ both enabled
---features=asan,ubsan                 # ❌ silently neither
+--features=asan --features=ubsan      # correct
+--features=asan,ubsan                 # silently ignored
 ```
 
-## Non-BCR Dependencies
+## Non-BCR dependencies
 
-Dependencies not in the Bazel Central Registry are declared once in `flake.nix`:
+Dependencies outside the Bazel Central Registry are declared once in `flake.nix`:
 
 ```nix
 nonBcrDeps = [
@@ -320,9 +332,9 @@ nonBcrDeps = [
 ];
 ```
 
-flazel fetches, extracts, and generates `--override_module` / `--override_repository` flags in `.bazelrc.nix`. No `archive_override` in MODULE.bazel needed — no duplication.
+flazel fetches, extracts, and writes `--override_module` / `--override_repository` flags to `.bazelrc.nix`. No `archive_override` in MODULE.bazel. No duplication.
 
-## Reproducible Releases
+## Reproducible releases
 
 ```nix
 release = flazel.lib.cc.mkDerivation {
@@ -336,24 +348,24 @@ release = flazel.lib.cc.mkDerivation {
 ```
 
 ```bash
-nix build  # Identical output every time
+nix build  # bit-for-bit identical output, every time
 ```
 
 ## Properties
 
-**Hermetic** — Builds depend only on declared inputs. No implicit system dependencies.
+**Hermetic.** Builds depend only on declared inputs. No implicit host dependencies. If it builds on your machine, it builds on every machine.
 
-**Reproducible** — `flake.lock` pins nixpkgs; `MODULE.bazel.lock` pins Bazel deps. Identical inputs produce identical outputs.
+**Reproducible.** `flake.lock` pins nixpkgs. `MODULE.bazel.lock` pins Bazel deps. Same inputs, same outputs. The Nix store path is the proof.
 
-**Incremental** — Bazel tracks dependencies at file granularity. Changing one file rebuilds only affected targets.
+**Incremental.** Bazel tracks dependencies at file granularity. Touch one file, rebuild one target. Remote caching works out of the box.
 
-**Offline** — BCR modules are pre-fetched into the Nix store. After initial setup, builds require no network access.
+**Offline.** BCR modules are pre-fetched into the Nix store. After `nix develop`, builds need zero network access. Air-gapped CI is possible.
 
-**Portable** — The only host requirement is a Nix installation.
+**Portable.** The only host requirement is a Nix installation. Everything else comes from the Nix store.
 
 ## References
 
-- [Nix Flakes](https://nixos.wiki/wiki/Flakes) — Hermetic, reproducible package management
-- [Bazel](https://bazel.build/) — Scalable, incremental build system
-- [rules_rust](https://github.com/bazelbuild/rules_rust) — Bazel rules for Rust
-- [rust-overlay](https://github.com/oxalica/rust-overlay) — Nix overlay for Rust toolchains
+- [Nix Flakes](https://nixos.wiki/wiki/Flakes): reproducible, hermetic package management
+- [Bazel](https://bazel.build/): scalable, incremental build system
+- [rules_rust](https://github.com/bazelbuild/rules_rust): Bazel rules for Rust
+- [rust-overlay](https://github.com/oxalica/rust-overlay): Nix overlay for pinned Rust toolchains

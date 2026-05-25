@@ -32,6 +32,22 @@ is automatically selected based on --platforms.
 
 load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "get_nix_deps_path", "path_exists", "resolve_path")
 
+_CPU_CONSTRAINTS = {
+    "x86_64": "@platforms//cpu:x86_64",
+    "aarch64": "@platforms//cpu:aarch64",
+    "mips64": "@platforms//cpu:mips64",
+    "arm": "@platforms//cpu:arm",
+    "riscv64": "@platforms//cpu:riscv64",
+}
+
+_OS_CONSTRAINTS = {
+    "linux": "@platforms//os:linux",
+    "ios": "@platforms//os:ios",
+    "macos": "@platforms//os:macos",
+    "darwin": "@platforms//os:macos",
+    "none": "@platforms//os:none",
+}
+
 # =============================================================================
 # Toolchain repository rules
 # =============================================================================
@@ -116,6 +132,95 @@ _stub_cc_deps_repo = repository_rule(
     local = True,
 )
 
+def _stub_cc_cross_repo_impl(repository_ctx):
+    """Creates a minimal CC toolchain for cross-compilation targets that lack a real compiler.
+
+    Unlike _stub_cc_repo (which fails at config time for unavailable Nix toolchains),
+    this produces a valid but non-functional toolchain that passes Bazel's toolchain
+    resolution. Useful when Rust targets require a CC toolchain for a platform you
+    never actually compile C/C++ for.
+    """
+    name = repository_ctx.attr.toolchain_name
+    target_cpu = repository_ctx.attr.target_cpu
+    target_os = repository_ctx.attr.target_os
+
+    repository_ctx.file("cc_toolchain_config.bzl", """\
+def _impl(ctx):
+    return cc_common.create_cc_toolchain_config_info(
+        ctx = ctx,
+        toolchain_identifier = "stub-{name}",
+        host_system_name = "local",
+        target_system_name = "stub",
+        target_cpu = "stub",
+        target_libc = "stub",
+        compiler = "stub",
+        abi_version = "stub",
+        abi_libc_version = "stub",
+        tool_paths = [],
+    )
+
+stub_cc_config = rule(implementation = _impl, provides = [CcToolchainConfigInfo])
+""".format(name = name))
+
+    repository_ctx.file("BUILD.bazel", """\
+load("@rules_cc//cc:defs.bzl", "cc_toolchain")
+load(":cc_toolchain_config.bzl", "stub_cc_config")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(name = "empty")
+
+stub_cc_config(name = "cc_toolchain_config")
+
+cc_toolchain(
+    name = "cc_toolchain_impl",
+    all_files = ":empty",
+    ar_files = ":empty",
+    as_files = ":empty",
+    compiler_files = ":empty",
+    dwp_files = ":empty",
+    linker_files = ":empty",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    toolchain_config = ":cc_toolchain_config",
+)
+
+toolchain(
+    name = "cc_toolchain",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "{target_cpu}",
+        "{target_os}",
+    ],
+    toolchain = ":cc_toolchain_impl",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+platform(
+    name = "platform",
+    constraint_values = [
+        "{target_cpu}",
+        "{target_os}",
+    ],
+)
+""".format(
+        target_cpu = target_cpu,
+        target_os = target_os,
+    ))
+
+_stub_cc_cross_repo = repository_rule(
+    implementation = _stub_cc_cross_repo_impl,
+    attrs = {
+        "toolchain_name": attr.string(mandatory = True),
+        "target_cpu": attr.string(mandatory = True),
+        "target_os": attr.string(mandatory = True),
+    },
+    local = True,
+)
+
 # =============================================================================
 # Library repository rules
 # =============================================================================
@@ -150,22 +255,12 @@ def _nix_lib_alias_repo_impl(repository_ctx):
     toolchains = repository_ctx.attr.toolchains
     default_toolchain = repository_ctx.attr.default_toolchain
 
-    # Map toolchain names to platform constraint values
-    # This uses standard @platforms constraints so it works even with stub toolchains
-    toolchain_constraints = {
-        "default": None,  # No constraint, matches default
-        "aarch64": "@platforms//cpu:aarch64",
-        "mips64": "@platforms//cpu:mips64",
-        "arm": "@platforms//cpu:arm",
-        "riscv64": "@platforms//cpu:riscv64",
-    }
-
-    # Build the select() cases
+    # Build the select() cases using module-level _CPU_CONSTRAINTS
     select_cases = []
     for tc in toolchains:
-        if tc != default_toolchain and tc in toolchain_constraints and toolchain_constraints[tc]:
+        if tc != default_toolchain and tc in _CPU_CONSTRAINTS:
             select_cases.append('        "{constraint}": "@{lib}_{tc}//:{lib}",'.format(
-                constraint = toolchain_constraints[tc],
+                constraint = _CPU_CONSTRAINTS[tc],
                 tc = tc,
                 lib = lib_name,
             ))
@@ -292,6 +387,29 @@ def _nix_cc_extension_impl(module_ctx):
             default_toolchain = default_toolchain,
         )
 
+    # Create stub CC toolchain repos for cross-compilation platforms
+    for mod in module_ctx.modules:
+        for tag in mod.tags.stub:
+            cpu = _CPU_CONSTRAINTS.get(tag.target_cpu)
+            if not cpu:
+                fail("Unknown target_cpu '{}'. Supported: {}".format(
+                    tag.target_cpu,
+                    ", ".join(_CPU_CONSTRAINTS.keys()),
+                ))
+            os = _OS_CONSTRAINTS.get(tag.target_os)
+            if not os:
+                fail("Unknown target_os '{}'. Supported: {}".format(
+                    tag.target_os,
+                    ", ".join(_OS_CONSTRAINTS.keys()),
+                ))
+            _stub_cc_cross_repo(
+                name = "local_config_cc_" + tag.name,
+                toolchain_name = tag.name,
+                target_cpu = cpu,
+                target_os = os,
+            )
+            _stub_cc_deps_repo(name = "local_config_cc_" + tag.name + "_deps")
+
 _toolchain_tag = tag_class(
     attrs = {
         "name": attr.string(
@@ -312,10 +430,20 @@ _package_tag = tag_class(
     doc = "Declares a library package to be provided by Nix.",
 )
 
+_stub_tag = tag_class(
+    attrs = {
+        "name": attr.string(mandatory = True, doc = "Name for this stub toolchain"),
+        "target_cpu": attr.string(mandatory = True, doc = "Target CPU (e.g., 'aarch64', 'x86_64')"),
+        "target_os": attr.string(mandatory = True, doc = "Target OS (e.g., 'linux', 'ios', 'macos')"),
+    },
+    doc = "Declares a stub CC toolchain for a cross-compilation target that lacks a real compiler.",
+)
+
 nix_cc = module_extension(
     implementation = _nix_cc_extension_impl,
     tag_classes = {
         "toolchain": _toolchain_tag,
         "package": _package_tag,
+        "stub": _stub_tag,
     },
 )
