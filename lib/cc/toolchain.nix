@@ -66,6 +66,7 @@
 let
   mkNixpkgsRepo = import ./nixpkgs-repo.nix;
   getTransitiveDeps = import ../core/utils.nix pkgs;
+  platform = import ../core/platform.nix;
 
   # Compiler mode
   isClang = compiler == "clang";
@@ -282,29 +283,8 @@ let
   '') gccWrapperIncludePaths;
 
   # Bazel platform constraints
-  cpuConstraint =
-    if targetCpu == "x86_64" then
-      "@platforms//cpu:x86_64"
-    else if targetCpu == "mips64" then
-      "@platforms//cpu:mips64"
-    else if targetCpu == "aarch64" then
-      "@platforms//cpu:aarch64"
-    else if targetCpu == "arm" then
-      "@platforms//cpu:arm"
-    else if targetCpu == "riscv64" then
-      "@platforms//cpu:riscv64"
-    else
-      throw "Unsupported CPU '${targetCpu}'. Supported: x86_64, aarch64, arm, mips64, riscv64";
-
-  osConstraint =
-    if targetOs == "linux" then
-      "@platforms//os:linux"
-    else if targetOs == "none" then
-      "@platforms//os:none"
-    else if targetOs == "macos" then
-      "@platforms//os:macos"
-    else
-      throw "Unsupported OS '${targetOs}'. Supported: linux, macos, none";
+  cpuConstraint = platform.cpuConstraint targetCpu;
+  osConstraint = platform.osConstraint targetOs;
 
   # Generate Bazel repos for each nixpkgs library
   nixpkgsRepos = builtins.mapAttrs (
@@ -345,90 +325,63 @@ let
 
   ccToolchainBinaries = pkgs.runCommand "cc-toolchain-bin" { } (
     if isClang then
-      # Clang toolchain: symlink clang/LLVM binaries to canonical Bazel names
       ''
         mkdir -p $out/bin
+
+        link_or_stub() {
+          if [ -e "$1" ]; then ln -s "$1" "$out/bin/$2"
+          else ln -s "${pkgs.coreutils}/bin/false" "$out/bin/$2"; fi
+        }
+
         ln -s ${toolchainClang}/bin/clang $out/bin/gcc
         ln -s ${toolchainClang}/bin/clang++ $out/bin/g++
         ln -s ${toolchainClang}/bin/clang-cpp $out/bin/cpp
-        # LLVM bintools
         ln -s ${effectiveLlvmBintools}/bin/ar $out/bin/ar
         ln -s ${effectiveLlvmBintools}/bin/llvm-nm $out/bin/nm
         ln -s ${effectiveLlvmBintools}/bin/llvm-objdump $out/bin/objdump
         ln -s ${effectiveLlvmBintools}/bin/llvm-objcopy $out/bin/objcopy
         ln -s ${effectiveLlvmBintools}/bin/llvm-strip $out/bin/strip
         ln -s ${effectiveLlvmBintools}/bin/ld.lld $out/bin/ld
-        # Coverage and profiling
-        if [ -e ${effectiveLlvmBintools}/bin/llvm-cov ]; then
-          ln -s ${effectiveLlvmBintools}/bin/llvm-cov $out/bin/gcov
+        link_or_stub "${effectiveLlvmBintools}/bin/llvm-cov" gcov
+        link_or_stub "${effectiveLlvmBintools}/bin/llvm-dwp" dwp
+        link_or_stub "${effectiveLlvmBintools}/bin/llvm-profdata" llvm-profdata
+      ''
+    else
+      ''
+        mkdir -p $out/bin
+
+        # Try prefixed name first (cross-compiler), then unprefixed, then stub
+        link_prefixed() {
+          local dir=$1 name=$2
+          if [ -e "$dir/${targetTriple}-$name" ]; then
+            ln -s "$dir/${targetTriple}-$name" "$out/bin/$name"
+          elif [ -e "$dir/$name" ]; then
+            ln -s "$dir/$name" "$out/bin/$name"
+          else
+            ln -s "${pkgs.coreutils}/bin/false" "$out/bin/$name"
+          fi
+        }
+
+        link_prefixed "${toolchainGcc}/bin" gcc
+        link_prefixed "${toolchainGcc}/bin" g++
+        link_prefixed "${toolchainGcc}/bin" cpp
+        link_prefixed "${binutils}/bin" ar
+        link_prefixed "${binutils}/bin" nm
+        link_prefixed "${binutils}/bin" objdump
+        link_prefixed "${binutils}/bin" objcopy
+        link_prefixed "${binutils}/bin" strip
+        link_prefixed "${binutils}/bin" ld
+        link_prefixed "${binutils}/bin" dwp
+
+        # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
+        if [ -e "${effectiveGcc.cc}/bin/${targetTriple}-gcov" ]; then
+          ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/${targetTriple}-gcov"} $out/bin/gcov
+        elif [ -e "${effectiveGcc.cc}/bin/gcov" ]; then
+          ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
         else
           ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
         fi
-        if [ -e ${effectiveLlvmBintools}/bin/llvm-dwp ]; then
-          ln -s ${effectiveLlvmBintools}/bin/llvm-dwp $out/bin/dwp
-        else
-          ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
-        fi
-        if [ -e ${effectiveLlvmBintools}/bin/llvm-profdata ]; then
-          ln -s ${effectiveLlvmBintools}/bin/llvm-profdata $out/bin/llvm-profdata
-        else
-          ln -s ${pkgs.coreutils}/bin/false $out/bin/llvm-profdata
-        fi
-      ''
-    else
-      # GCC toolchain
-      ''
-        mkdir -p $out/bin
-        # Try prefixed first (cross-compiler), then unprefixed (native)
-        if [ -e ${toolchainGcc}/bin/${targetTriple}-gcc ]; then
-          ln -s ${toolchainGcc}/bin/${targetTriple}-gcc $out/bin/gcc
-          ln -s ${toolchainGcc}/bin/${targetTriple}-g++ $out/bin/g++
-          ln -s ${toolchainGcc}/bin/${targetTriple}-cpp $out/bin/cpp
-          # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
-          if [ -e ${effectiveGcc.cc}/bin/${targetTriple}-gcov ]; then
-            ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/${targetTriple}-gcov"} $out/bin/gcov
-          elif [ -e ${effectiveGcc.cc}/bin/gcov ]; then
-            ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
-          else
-            ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
-          fi
-        else
-          ln -s ${toolchainGcc}/bin/gcc $out/bin/gcc
-          ln -s ${toolchainGcc}/bin/g++ $out/bin/g++
-          ln -s ${toolchainGcc}/bin/cpp $out/bin/cpp
-          # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
-          if [ -e ${effectiveGcc.cc}/bin/gcov ]; then
-            ln -s ${mkGcovWrapper "${effectiveGcc.cc}/bin/gcov"} $out/bin/gcov
-          else
-            ln -s ${pkgs.coreutils}/bin/false $out/bin/gcov
-          fi
-        fi
-        # Binutils - try prefixed first, then unprefixed
-        if [ -e ${binutils}/bin/${targetTriple}-ar ]; then
-          ln -s ${binutils}/bin/${targetTriple}-ar $out/bin/ar
-          ln -s ${binutils}/bin/${targetTriple}-nm $out/bin/nm
-          ln -s ${binutils}/bin/${targetTriple}-objdump $out/bin/objdump
-          ln -s ${binutils}/bin/${targetTriple}-objcopy $out/bin/objcopy
-          ln -s ${binutils}/bin/${targetTriple}-strip $out/bin/strip
-          ln -s ${binutils}/bin/${targetTriple}-ld $out/bin/ld
-          if [ -e ${binutils}/bin/${targetTriple}-dwp ]; then
-            ln -s ${binutils}/bin/${targetTriple}-dwp $out/bin/dwp
-          else
-            ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
-          fi
-        else
-          ln -s ${binutils}/bin/ar $out/bin/ar
-          ln -s ${binutils}/bin/nm $out/bin/nm
-          ln -s ${binutils}/bin/objdump $out/bin/objdump
-          ln -s ${binutils}/bin/objcopy $out/bin/objcopy
-          ln -s ${binutils}/bin/strip $out/bin/strip
-          ln -s ${binutils}/bin/ld $out/bin/ld
-          if [ -e ${binutils}/bin/dwp ]; then
-            ln -s ${binutils}/bin/dwp $out/bin/dwp
-          else
-            ln -s ${pkgs.coreutils}/bin/false $out/bin/dwp
-          fi
-        fi
+
         ln -s ${pkgs.coreutils}/bin/false $out/bin/llvm-profdata
       ''
   );

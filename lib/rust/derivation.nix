@@ -42,14 +42,7 @@ let
           builtins.replaceStrings [ "-" ] [ "_" ] target
         }
       '') cfg.targets
-    }${if flazelPath != null then "build --override_module=flazel=${flazelPath}" else ""}
-    ${
-      if caches ? nonBcrOverrideFlags && caches.nonBcrOverrideFlags != "" then
-        caches.nonBcrOverrideFlags
-      else
-        ""
-    }
-    BAZELRC
+    }${coreDeriv.mkBazelrcFooter { inherit flazelPath caches; }}BAZELRC
   '';
 in
 coreDeriv.mkFlazelDerivation {

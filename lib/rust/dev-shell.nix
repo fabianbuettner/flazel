@@ -22,6 +22,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
+  inherit (import ../core/derivation.nix) mkBazelrcFooter;
 
   toolchainList = pkgs.lib.attrValues toolchains;
   toolchainNames = pkgs.lib.attrNames toolchains;
@@ -67,12 +68,7 @@ let
           }
         '') cfg.targets
       ) toolchainNames
-    }${if flazelPath != null then "build --override_module=flazel=${flazelPath}\n" else ""}${
-      if caches ? nonBcrOverrideFlags && caches.nonBcrOverrideFlags != "" then
-        caches.nonBcrOverrideFlags + "\n"
-      else
-        ""
-    }EOF
+    }${mkBazelrcFooter { inherit flazelPath caches; }}EOF
 
         echo "${
           pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))

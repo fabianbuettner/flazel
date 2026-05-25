@@ -22,7 +22,7 @@
   name,
   pkg,
   static ? false,
-  getTransitiveDeps ? (import ./utils.nix pkgs),
+  getTransitiveDeps ? (import ../core/utils.nix pkgs),
 }:
 let
   devPkg = pkg.dev or pkg;

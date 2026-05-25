@@ -15,6 +15,20 @@
 #   };
 #
 rec {
+  # Generate .bazelrc.nix lines for flazel module override and non-BCR deps
+  mkBazelrcFooter =
+    {
+      flazelPath ? null,
+      caches,
+    }:
+    (if flazelPath != null then "build --override_module=flazel=${flazelPath}\n" else "")
+    + (
+      if caches ? nonBcrOverrideFlags && caches.nonBcrOverrideFlags != "" then
+        caches.nonBcrOverrideFlags + "\n"
+      else
+        ""
+    );
+
   # Generate shell script to set up .nix-bazel-deps directory (core setup)
   mkFlazelDepsSetup =
     {

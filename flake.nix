@@ -75,9 +75,6 @@
         # Rust toolchain configuration
         mkConfig = import ./lib/rust/toolchain.nix;
 
-        # Rust crate_universe helper
-        mkCargoBazel = import ./lib/rust/cargo-bazel.nix;
-
         # Rust-specific derivation (auto-inject flazelPath)
         mkDerivation = withFlazelPath (import ./lib/rust/derivation.nix);
 
@@ -142,6 +139,7 @@
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/bcr-cache.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/derivation.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/dev-shell.nix} > /dev/null
+            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/platform.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/toolchain.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/nixpkgs-repo.nix} > /dev/null
             ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/derivation.nix} > /dev/null

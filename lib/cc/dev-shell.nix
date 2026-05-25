@@ -28,6 +28,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
+  inherit (import ../core/derivation.nix) mkBazelrcFooter;
 
   # Get list of toolchain configs
   toolchainList = pkgs.lib.attrValues toolchains;
@@ -68,12 +69,7 @@ let
       pkgs.lib.concatMapStrings (name: ''
         build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain
       '') toolchainNames
-    }${if flazelPath != null then "build --override_module=flazel=${flazelPath}\n" else ""}${
-      if caches ? nonBcrOverrideFlags && caches.nonBcrOverrideFlags != "" then
-        caches.nonBcrOverrideFlags + "\n"
-      else
-        ""
-    }EOF
+    }${mkBazelrcFooter { inherit flazelPath caches; }}EOF
 
         # Write marker file with available toolchains (forces module extension re-evaluation)
         # The nix_cc module extension reads this file to detect when toolchains change

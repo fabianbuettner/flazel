@@ -28,6 +28,8 @@
   extraExtensions ? [ ],
 }:
 let
+  platform = import ../core/platform.nix;
+
   extensions = [
     "rust-src"
     "llvm-tools-preview"
@@ -88,66 +90,54 @@ let
     )
 
     ${builtins.concatStringsSep "\n" (
-      map (target: ''
-        rust_stdlib_filegroup(
-            name = "rust_std_${builtins.replaceStrings [ "-" ] [ "_" ] target}",
-            srcs = glob(["lib/rustlib/${target}/lib/*.rlib", "lib/rustlib/${target}/lib/*.a", "lib/rustlib/${target}/lib/*.so", "lib/rustlib/${target}/lib/*.dylib"]),
-        )
+      map (
+        target:
+        let
+          sanitized = builtins.replaceStrings [ "-" ] [ "_" ] target;
+        in
+        ''
+          rust_stdlib_filegroup(
+              name = "rust_std_${sanitized}",
+              srcs = glob(["lib/rustlib/${target}/lib/*.rlib", "lib/rustlib/${target}/lib/*.a", "lib/rustlib/${target}/lib/*.so", "lib/rustlib/${target}/lib/*.dylib"]),
+          )
 
-        rust_toolchain(
-            name = "rust_toolchain_${builtins.replaceStrings [ "-" ] [ "_" ] target}_impl",
-            rustc = ":rustc",
-            rust_doc = ":rustdoc",
-            cargo = ":cargo",
-            clippy_driver = ":clippy_driver",
-            rustfmt = ":rustfmt",
-            rustc_lib = ":rustc_lib",
-            rust_std = ":rust_std_${builtins.replaceStrings [ "-" ] [ "_" ] target}",
-            llvm_cov = ":llvm_cov",
-            llvm_profdata = ":llvm_profdata",
-            exec_triple = "${execTriple}",
-            target_triple = "${target}",
-            binary_ext = "",
-            staticlib_ext = ".a",
-            dylib_ext = ".so",
-            stdlib_linkflags = ["-lpthread", "-ldl"],
-            default_edition = "2021",
-        )
+          rust_toolchain(
+              name = "rust_toolchain_${sanitized}_impl",
+              rustc = ":rustc",
+              rust_doc = ":rustdoc",
+              cargo = ":cargo",
+              clippy_driver = ":clippy_driver",
+              rustfmt = ":rustfmt",
+              rustc_lib = ":rustc_lib",
+              rust_std = ":rust_std_${sanitized}",
+              llvm_cov = ":llvm_cov",
+              llvm_profdata = ":llvm_profdata",
+              exec_triple = "${execTriple}",
+              target_triple = "${target}",
+              binary_ext = "",
+              staticlib_ext = ".a",
+              dylib_ext = ".so",
+              stdlib_linkflags = ["-lpthread", "-ldl"],
+              default_edition = "2021",
+          )
 
-        toolchain(
-            name = "rust_toolchain_${builtins.replaceStrings [ "-" ] [ "_" ] target}",
-            exec_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
-            target_compatible_with = [${
-              let
-                parts = builtins.match "([^-]+)-([^-]+)-([^-]+)(-.*)?" target;
-                cpu = builtins.elemAt parts 0;
-                vendor = builtins.elemAt parts 1;
-                os = builtins.elemAt parts 2;
-                cpuConstraint =
-                  if cpu == "x86_64" then
-                    "@platforms//cpu:x86_64"
-                  else if cpu == "aarch64" then
-                    "@platforms//cpu:aarch64"
-                  else
-                    throw "Unsupported CPU '${cpu}' in target triple '${target}'";
-                osConstraint =
-                  if os == "linux" then
-                    "@platforms//os:linux"
-                  else if os == "ios" then
-                    "@platforms//os:ios"
-                  else if os == "macos" || os == "darwin" then
-                    "@platforms//os:macos"
-                  else if os == "unknown" && builtins.match ".*musl.*" target != null then
-                    "@platforms//os:linux"
-                  else
-                    throw "Unsupported OS '${os}' in target triple '${target}'";
-              in
-              ''"${cpuConstraint}", "${osConstraint}"''
-            }],
-            toolchain = ":rust_toolchain_${builtins.replaceStrings [ "-" ] [ "_" ] target}_impl",
-            toolchain_type = "@rules_rust//rust:toolchain_type",
-        )
-      '') targets
+          toolchain(
+              name = "rust_toolchain_${sanitized}",
+              exec_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
+              target_compatible_with = [${
+                let
+                  parts = builtins.match "([^-]+)-([^-]+)-([^-]+)(-.*)?" target;
+                  cpu = builtins.elemAt parts 0;
+                  os = builtins.elemAt parts 2;
+                  resolvedOs = if os == "unknown" && builtins.match ".*musl.*" target != null then "linux" else os;
+                in
+                ''"${platform.cpuConstraint cpu}", "${platform.osConstraint resolvedOs}"''
+              }],
+              toolchain = ":rust_toolchain_${sanitized}_impl",
+              toolchain_type = "@rules_rust//rust:toolchain_type",
+          )
+        ''
+      ) targets
     )}
   '';
 

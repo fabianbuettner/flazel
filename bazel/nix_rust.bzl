@@ -11,33 +11,23 @@ Usage in MODULE.bazel:
     use_repo(nix_rust, "local_config_rust_default")
 """
 
-_NIX_DEPS_DIR = ".nix-bazel-deps"
-
-def _file_exists(repository_ctx, path):
-    """Check if a file exists using test command (sandbox compatible)."""
-    result = repository_ctx.execute(["test", "-e", path])
-    return result.return_code == 0
-
-def _resolve_path(repository_ctx, relative_path):
-    """Resolve a relative path to absolute using the workspace root."""
-    workspace_root = repository_ctx.path(Label("@@//:MODULE.bazel")).dirname
-    return str(workspace_root) + "/" + relative_path
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "get_nix_deps_path", "path_exists", "resolve_path")
 
 def _nix_rust_repo_impl(repository_ctx):
     """Creates a Rust toolchain repository by symlinking to a Nix store path."""
-    path = _resolve_path(repository_ctx, repository_ctx.attr.path)
+    path = resolve_path(repository_ctx, repository_ctx.attr.path)
 
     build_file = path + "/BUILD.bazel"
-    if not _file_exists(repository_ctx, build_file):
+    if not file_exists(repository_ctx, build_file):
         fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
     repository_ctx.symlink(build_file, "BUILD.bazel")
 
     bin_dir = path + "/bin"
-    if _file_exists(repository_ctx, bin_dir):
+    if file_exists(repository_ctx, bin_dir):
         repository_ctx.symlink(bin_dir, "bin")
 
     lib_dir = path + "/lib"
-    if _file_exists(repository_ctx, lib_dir):
+    if file_exists(repository_ctx, lib_dir):
         repository_ctx.symlink(lib_dir, "lib")
 
 _nix_rust_repo = repository_rule(
@@ -61,30 +51,15 @@ _stub_rust_repo = repository_rule(
     local = True,
 )
 
-def _get_nix_deps_path(module_ctx):
-    """Get the absolute path to the .nix-bazel-deps directory."""
-    workspace_root = module_ctx.path(Label("@@//:MODULE.bazel")).dirname
-    return str(workspace_root) + "/" + _NIX_DEPS_DIR
-
-def _path_exists(module_ctx, path):
-    """Check if a path exists."""
-    result = module_ctx.execute(["test", "-e", path])
-    return result.return_code == 0
-
-def _dir_exists(module_ctx, path):
-    """Check if a directory exists."""
-    result = module_ctx.execute(["test", "-d", path])
-    return result.return_code == 0
-
 def _nix_rust_extension_impl(module_ctx):
     """Module extension that creates Rust toolchain repositories."""
-    nix_deps = _get_nix_deps_path(module_ctx)
+    nix_deps = get_nix_deps_path(module_ctx)
 
-    if not _dir_exists(module_ctx, nix_deps):
+    if not dir_exists(module_ctx, nix_deps):
         fail("Nix dependencies not found at {}. Run 'nix develop' first.".format(nix_deps))
 
     marker_path = nix_deps + "/.toolchain-marker"
-    if _path_exists(module_ctx, marker_path):
+    if path_exists(module_ctx, marker_path):
         module_ctx.read(marker_path)
 
     requested_toolchains = []
@@ -93,13 +68,13 @@ def _nix_rust_extension_impl(module_ctx):
             requested_toolchains.append(tag.name)
 
     toolchains_dir = nix_deps + "/toolchains"
-    toolchains_dir_rel = _NIX_DEPS_DIR + "/toolchains"
+    toolchains_dir_rel = NIX_DEPS_DIR + "/toolchains"
 
     for name in requested_toolchains:
         rust_path = toolchains_dir + "/" + name + "/rust"
         rust_path_rel = toolchains_dir_rel + "/" + name + "/rust"
 
-        if _dir_exists(module_ctx, rust_path):
+        if dir_exists(module_ctx, rust_path):
             _nix_rust_repo(name = "local_config_rust_" + name, path = rust_path_rel)
         else:
             _stub_rust_repo(name = "local_config_rust_" + name, toolchain_name = name)
