@@ -11,7 +11,7 @@ Usage in MODULE.bazel:
     use_repo(nix_rust, "local_config_rust_default")
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "get_nix_deps_path", "path_exists", "resolve_path")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path")
 
 def _nix_rust_repo_impl(repository_ctx):
     """Creates a Rust toolchain repository by symlinking to a Nix store path."""
@@ -53,14 +53,7 @@ _stub_rust_repo = repository_rule(
 
 def _nix_rust_extension_impl(module_ctx):
     """Module extension that creates Rust toolchain repositories."""
-    nix_deps = get_nix_deps_path(module_ctx)
-
-    if not dir_exists(module_ctx, nix_deps):
-        fail("Nix dependencies not found at {}. Run 'nix develop' first.".format(nix_deps))
-
-    marker_path = nix_deps + "/.toolchain-marker"
-    if path_exists(module_ctx, marker_path):
-        module_ctx.read(marker_path)
+    nix_deps = init_extension(module_ctx)
 
     requested_toolchains = []
     for mod in module_ctx.modules:

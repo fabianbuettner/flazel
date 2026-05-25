@@ -23,7 +23,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
-  inherit (import ../core/derivation.nix) mkBazelrcFooter;
+  inherit (import ../core/derivation.nix) mkBazelrcContent;
 
   toolchainList = pkgs.lib.attrValues toolchains;
   toolchainNames = pkgs.lib.attrNames toolchains;
@@ -51,25 +51,28 @@ let
           '') ccToolchains
         )}
 
-        # Generate .bazelrc.nix with toolchain registrations
         cat >> .nix-bazel-deps/.bazelrc.nix << 'EOF'
     ${
-      pkgs.lib.concatMapStrings (name: ''
-        build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain
-      '') ccToolchainNames
-    }${
-      pkgs.lib.concatMapStrings (
-        name:
-        let
-          cfg = toolchains.${name};
-        in
-        pkgs.lib.concatMapStrings (target: ''
-          build --extra_toolchains=@local_config_rust_${name}//:rust_toolchain_${
-            builtins.replaceStrings [ "-" ] [ "_" ] target
-          }
-        '') cfg.targets
-      ) toolchainNames
-    }${mkBazelrcFooter { inherit flazelPath caches; }}EOF
+      mkBazelrcContent {
+        toolchainLines =
+          pkgs.lib.concatMapStrings (
+            name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
+          ) ccToolchainNames
+          + pkgs.lib.concatMapStrings (
+            name:
+            let
+              cfg = toolchains.${name};
+            in
+            pkgs.lib.concatMapStrings (
+              target:
+              "build --extra_toolchains=@local_config_rust_${name}//:rust_toolchain_${
+                builtins.replaceStrings [ "-" ] [ "_" ] target
+              }\n"
+            ) cfg.targets
+          ) toolchainNames;
+        inherit flazelPath caches;
+      }
+    }EOF
 
         echo "${
           pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))

@@ -30,8 +30,9 @@ Libraries are accessed as @libjpeg//:libjpeg - the correct architecture
 is automatically selected based on --platforms.
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "get_nix_deps_path", "path_exists", "resolve_path")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path")
 
+# Keep in sync with lib/core/platform.nix
 _CPU_CONSTRAINTS = {
     "x86_64": "@platforms//cpu:x86_64",
     "aarch64": "@platforms//cpu:aarch64",
@@ -40,6 +41,7 @@ _CPU_CONSTRAINTS = {
     "riscv64": "@platforms//cpu:riscv64",
 }
 
+# Keep in sync with lib/core/platform.nix
 _OS_CONSTRAINTS = {
     "linux": "@platforms//os:linux",
     "ios": "@platforms//os:ios",
@@ -300,17 +302,7 @@ _nix_lib_alias_repo = repository_rule(
 
 def _nix_cc_extension_impl(module_ctx):
     """Module extension that creates CC toolchain and library repositories."""
-    nix_deps = get_nix_deps_path(module_ctx)
-
-    # Check if the deps directory exists
-    if not dir_exists(module_ctx, nix_deps):
-        fail("Nix dependencies not found at {}. Run 'nix develop' first.".format(nix_deps))
-
-    # Read marker file to create dependency - forces re-evaluation when shell changes
-    # The marker file contains a sorted list of available toolchains
-    marker_path = nix_deps + "/.toolchain-marker"
-    if path_exists(module_ctx, marker_path):
-        module_ctx.read(marker_path)
+    nix_deps = init_extension(module_ctx)
 
     # Collect requested toolchains and packages from tags
     requested_toolchains = []

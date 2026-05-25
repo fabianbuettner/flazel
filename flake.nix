@@ -138,19 +138,7 @@
 
           # Basic syntax check - ensure all lib files are valid Nix
           libSyntax = pkgs.runCommand "flazel-lib-syntax-check" { } ''
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/utils.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/bcr-cache.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/derivation.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/dev-shell.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/core/platform.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/toolchain.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/nixpkgs-repo.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/derivation.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/cc/dev-shell.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/toolchain.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/dev-shell.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/derivation.nix} > /dev/null
-            ${pkgs.nix}/bin/nix-instantiate --parse ${./lib/rust/cargo-bazel.nix} > /dev/null
+            find ${./lib} -name '*.nix' -exec ${pkgs.nix}/bin/nix-instantiate --parse {} \; > /dev/null
             touch $out
           '';
         };

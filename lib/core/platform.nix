@@ -2,6 +2,7 @@
 #
 # Maps CPU and OS names to @platforms// constraint values.
 # Used by cc and rust toolchain modules.
+# Keep in sync with _CPU_CONSTRAINTS/_OS_CONSTRAINTS in bazel/nix_cc.bzl.
 {
   cpuConstraint =
     cpu:

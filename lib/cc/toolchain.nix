@@ -350,7 +350,6 @@ let
       ''
         mkdir -p $out/bin
 
-        # Try prefixed name first (cross-compiler), then unprefixed, then stub
         link_prefixed() {
           local dir=$1 name=$2
           if [ -e "$dir/${targetTriple}-$name" ]; then
@@ -362,16 +361,8 @@ let
           fi
         }
 
-        link_prefixed "${toolchainGcc}/bin" gcc
-        link_prefixed "${toolchainGcc}/bin" g++
-        link_prefixed "${toolchainGcc}/bin" cpp
-        link_prefixed "${binutils}/bin" ar
-        link_prefixed "${binutils}/bin" nm
-        link_prefixed "${binutils}/bin" objdump
-        link_prefixed "${binutils}/bin" objcopy
-        link_prefixed "${binutils}/bin" strip
-        link_prefixed "${binutils}/bin" ld
-        link_prefixed "${binutils}/bin" dwp
+        for name in gcc g++ cpp; do link_prefixed "${toolchainGcc}/bin" "$name"; done
+        for name in ar nm objdump objcopy strip ld dwp; do link_prefixed "${binutils}/bin" "$name"; done
 
         # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
         if [ -e "${effectiveGcc.cc}/bin/${targetTriple}-gcov" ]; then

@@ -1,22 +1,38 @@
 # Utility function to recursively collect all transitive dependencies
 # from a package's propagatedBuildInputs.
 #
+# Uses an attrset as a visited set (keyed by pname) to avoid redundant
+# traversal of diamond dependencies.
+#
 # Usage:
 #   flazel.lib.getTransitiveDeps pkgs pkgs.openssl
-#   # Returns a list of all transitive dependencies
 #
 pkgs: pkg:
 let
-  getTransitiveDeps =
+  go =
+    { visited, deps }:
     p:
     let
       direct = p.propagatedBuildInputs or [ ];
-      # Filter out null and packages without pname
-      validDeps = builtins.filter (d: d != null && (d.pname or d.name or "") != "") direct;
-      # Recursively get deps of deps
-      recurse = dep: [ dep ] ++ (getTransitiveDeps dep);
-      allDeps = pkgs.lib.flatten (map recurse validDeps);
+      key = d: d.pname or d.name or "";
+      fresh = builtins.filter (
+        d:
+        d != null
+        && (
+          let
+            k = key d;
+          in
+          k != "" && !(visited ? ${k})
+        )
+      ) direct;
+      visited' = builtins.foldl' (acc: d: acc // { ${key d} = true; }) visited fresh;
     in
-    pkgs.lib.unique allDeps;
+    builtins.foldl' (state: dep: go state dep) {
+      visited = visited';
+      deps = deps ++ fresh;
+    } fresh;
 in
-getTransitiveDeps pkg
+(go {
+  visited = { };
+  deps = [ ];
+} pkg).deps
