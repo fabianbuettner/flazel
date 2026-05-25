@@ -48,10 +48,12 @@
           inherit pkgs;
           lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
         };
+
+        cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs; };
       in
       {
         devShells.default = flazel.lib.rust.mkDevShell {
-          inherit pkgs caches;
+          inherit pkgs caches cargoBazel;
           flazelPath = flazel.outPath;
           toolchains = {
             default = rustCfg;

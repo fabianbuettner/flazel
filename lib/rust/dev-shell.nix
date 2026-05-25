@@ -17,6 +17,7 @@
   ccToolchains ? { },
   bazel ? pkgs.bazel,
   flazelPath ? null,
+  cargoBazel ? null,
   extraPackages ? [ ],
   shellHook ? "",
 }:
@@ -73,6 +74,10 @@ let
         echo "${
           pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))
         }" >> .nix-bazel-deps/.toolchain-marker
+
+        ${pkgs.lib.optionalString (cargoBazel != null) ''
+          export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
+        ''}
   '';
 
   toolchainInfo = pkgs.lib.concatStringsSep ", " (
@@ -98,6 +103,7 @@ coreDevShell {
     cargo-deny
     bacon
   ])
+  ++ pkgs.lib.optional (cargoBazel != null) cargoBazel
   ++ extraPackages;
 
   shellHook = ''

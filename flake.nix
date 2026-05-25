@@ -75,6 +75,9 @@
         # Rust toolchain configuration
         mkConfig = import ./lib/rust/toolchain.nix;
 
+        # Build cargo-bazel from source for crate_universe on NixOS
+        mkCargoBazel = import ./lib/rust/cargo-bazel.nix;
+
         # Rust-specific derivation (auto-inject flazelPath)
         mkDerivation = withFlazelPath (import ./lib/rust/derivation.nix);
 

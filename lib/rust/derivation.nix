@@ -22,6 +22,7 @@
   installPhase,
   bazel ? pkgs.bazel,
   flazelPath ? null,
+  cargoBazel ? null,
   extraNativeBuildInputs ? [ ],
   extraBuildInputs ? [ ],
 }:
@@ -43,6 +44,10 @@ let
         }
       '') cfg.targets
     }${coreDeriv.mkBazelrcFooter { inherit flazelPath caches; }}BAZELRC
+
+        ${pkgs.lib.optionalString (cargoBazel != null) ''
+          export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
+        ''}
   '';
 in
 coreDeriv.mkFlazelDerivation {

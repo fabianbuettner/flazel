@@ -24,7 +24,7 @@ Hermetic Bazel builds powered by Nix. One command to set up your entire toolchai
 - **Nix-provided rustc** wired into Bazel via custom toolchain (NixOS cannot run downloaded rustc binaries)
 - **Configurable Rust version** and target triples
 - **Cross-compilation**: `aarch64-apple-ios`, `aarch64-unknown-linux-musl`, and any target rustc supports
-- **crate_universe** integration for Cargo-to-Bazel dependency resolution
+- **crate_universe** integration: Nix-built `cargo-bazel` for Cargo-to-Bazel dependency resolution
 - **Dev shell**: rustc, cargo, clippy, rustfmt, nextest, cargo-llvm-cov, cargo-deny, bacon
 - **Bazel rules**: `rust_library`, `rust_binary`, `rust_test`, `rust_clippy`, `rustfmt_test`
 - **Coverage**: `bazel coverage` with llvm-cov instrumentation
@@ -107,9 +107,11 @@ bazel test //...   # Run tests
         inherit pkgs;
         lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
       };
+      # Optional: for projects using crate_universe (Cargo deps in Bazel)
+      cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs; };
     in {
       devShells.x86_64-linux.default = flazel.lib.rust.mkDevShell {
-        inherit pkgs caches;
+        inherit pkgs caches cargoBazel;
         flazelPath = flazel.outPath;
         toolchains = { default = rustCfg; };
         ccToolchains = { default = ccCfg; };
@@ -138,6 +140,15 @@ register_toolchains("@local_config_rust_default//:all")
 
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
 host_tools.host_tools(edition = "2021", version = "1.85.0")
+
+# Optional: Cargo dependencies via crate_universe
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")
 ```
 
 ```bash
