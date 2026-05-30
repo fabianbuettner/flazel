@@ -8,6 +8,9 @@ bazel_dep(name = "rules_cc", version = "0.1.4")
 bazel_dep(name = "flazel", version = "0.0.1")
 bazel_dep(name = "platforms", version = "1.0.0")
 
+# The vendored crate defs (3rdparty/crates) load @bazel_skylib//lib:selects.bzl.
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+
 local_path_override(
     module_name = "flazel",
     path = "../..",
@@ -64,14 +67,10 @@ override_repo(
     rust_host_tools = "nix_rust_host_tools",
 )
 
-# Crate dependencies from Cargo.toml
-crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
-crate.from_cargo(
-    name = "crates",
-    cargo_lockfile = "//:Cargo.lock",
-    manifests = [
-        "//:Cargo.toml",
-        "//hello:Cargo.toml",
-    ],
-)
-use_repo(crate, "crates")
+# Vendored crate dependencies (committed in 3rdparty/crates). Declared via a
+# module extension so it works under pure bzlmod; offline builds use the
+# committed defs + crate archives from the Nix cache, with no splice. Crates are
+# referenced as @crate_vendor//:<name>, so only the stable hub is imported here
+# (the versioned spoke repos live inside the hub's regenerated mapping).
+crates = use_extension("//:crates_vendor_extension.bzl", "crates")
+use_repo(crates, "crate_vendor")

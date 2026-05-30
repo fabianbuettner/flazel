@@ -1,5 +1,7 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_clippy", "rust_library", "rust_test", "rustfmt_test")
 
+exports_files(["Cargo.toml"])
+
 rust_library(
     name = "hello",
     srcs = [
@@ -7,9 +9,9 @@ rust_library(
         "src/no_std_compat.rs",
     ],
     deps = [
-        "@crates//:serde",
-        "@crates//:serde_json",
-        "@crates//:tokio",
+        "@crate_vendor//:serde",
+        "@crate_vendor//:serde_json",
+        "@crate_vendor//:tokio",
     ],
 )
 
@@ -23,8 +25,8 @@ rust_test(
     name = "hello_test",
     crate = ":hello",
     deps = [
-        "@crates//:proptest",
-        "@crates//:tempfile",
+        "@crate_vendor//:proptest",
+        "@crate_vendor//:tempfile",
     ],
 )
 

@@ -1,1 +1,25 @@
 # Flazel Rust integration test workspace
+
+load("@rules_rust//crate_universe:defs.bzl", "crates_vendor")
+
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+])
+
+# Regenerate the committed crate defs with:
+#   nix develop -c bazel run //:crate_vendor
+# (online, using the nix host tools). `remote` mode commits only the BUILD
+# definitions; offline builds fetch the crate archives from the Nix cache.
+crates_vendor(
+    name = "crate_vendor",
+    cargo_lockfile = "//:Cargo.lock",
+    generate_build_scripts = True,
+    manifests = [
+        "//:Cargo.toml",
+        "//hello:Cargo.toml",
+    ],
+    mode = "remote",
+    tags = ["manual"],
+    vendor_path = "3rdparty/crates",
+)
