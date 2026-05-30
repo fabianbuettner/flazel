@@ -446,7 +446,7 @@ let
 
   # Clang-only features: module_maps, layering_check, parse_headers
   ccToolchainBuild = pkgs.writeText "BUILD.bazel" ''
-    load("@rules_cc//cc:defs.bzl", "cc_toolchain", "cc_toolchain_suite")
+    load("@rules_cc//cc:defs.bzl", "cc_toolchain")
     load(":cc_toolchain_config.bzl", "cc_toolchain_config")
 
     package(default_visibility = ["//visibility:public"])
@@ -484,11 +484,6 @@ let
         objcopy_files = ":all_files",
         strip_files = ":all_files",
         toolchain_config = ":local_config_cc_toolchain_config",
-    )
-
-    cc_toolchain_suite(
-        name = "toolchain",
-        toolchains = {"k8": ":local_config_cc_toolchain", "k8|${compiler}": ":local_config_cc_toolchain"},
     )
 
     toolchain(
