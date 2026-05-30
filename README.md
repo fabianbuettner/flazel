@@ -10,7 +10,7 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 
 - **GCC or Clang**, any version nixpkgs has. Pick your linker: mold, lld, gold, bfd.
 - **Static** (musl), **dynamic** (glibc), or **bare metal** (no libc). Your choice, one parameter.
-- **Cross-compilation**: x86_64, aarch64, riscv64, mips64, arm. All in one shell.
+- **Cross-compilation**: x86_64, aarch64, riscv32, riscv64, mips64, arm. All in one shell.
 - **Nixpkgs libraries**: `nixpkgsLibs = { openssl = pkgs.openssl; }` in Nix, `@openssl//:openssl` in Bazel. Transitive deps handled.
 - **Hardened by default**: `_FORTIFY_SOURCE=3`, stack protectors, GLIBCXX assertions, split DWARF. Opt out per feature if you dare.
 - **Sanitizers**: `asan`, `ubsan`, `tsan` as `--features=` flags. Mutual exclusion enforced. ASan+UBSan layering works.
@@ -21,13 +21,13 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 ### Rust
 
 - **Nix-provided rustc** threaded into Bazel (rules_rust downloads unpatched ELF binaries that segfault on NixOS. flazel uses rust-overlay's patchelf'd toolchain instead)
-- **crate_universe**: Nix-built `cargo-bazel` because that binary doesn't run on NixOS either
+- **crate_universe**: Cargo deps resolved to Bazel targets. rules_rust's splice needs a host rustc that segfaults on NixOS; flazel overrides it with the Nix toolchain. Vendor the defs for fully offline builds (see [Offline Rust](#offline-rust))
 - **Cross-compilation**: `aarch64-apple-ios`, `aarch64-unknown-linux-musl`, anything rustc supports
 - **Dev shell**: rustc, cargo, clippy, rustfmt, nextest, cargo-llvm-cov, cargo-deny, bacon
 
 ### Shared
 
-- **Offline builds**: BCR modules pre-fetched into the Nix store. After initial setup, the network is optional.
+- **Offline builds**: BCR modules (and vendored crate archives) pre-fetched into the Nix store. After initial setup, the network is optional.
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
 - **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input.
 
@@ -136,10 +136,17 @@ nix_rust.toolchain(name = "default")
 use_repo(nix_rust, "local_config_rust_default")
 register_toolchains("@local_config_rust_default//:all")
 
+# crate_universe needs a host rustc to splice Cargo metadata. rules_rust
+# downloads one that segfaults on NixOS, so override it with the Nix toolchain.
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
 host_tools.host_tools(edition = "2021", version = "1.85.0")
 
-# Optional: resolve Cargo deps into Bazel targets
+nix_rust_host_tools = use_repo_rule("@flazel//bazel:nix_rust.bzl", "nix_rust_host_tools")
+nix_rust_host_tools(name = "nix_rust_host_tools")
+override_repo(host_tools, rust_host_tools = "nix_rust_host_tools")
+
+# Resolve Cargo deps into Bazel targets. from_cargo splices at build time and
+# needs network; vendor the defs for offline builds (see Offline Rust below).
 crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 crate.from_cargo(
     name = "crates",
@@ -150,6 +157,58 @@ use_repo(crate, "crates")
 ```
 
 Complete working example: [`tests/rust/`](tests/rust/).
+
+## Offline Rust
+
+`crate.from_cargo` re-splices every build and needs network access. For
+air-gapped builds, vendor the crate definitions once and commit them.
+
+Declare a `crates_vendor` target in `BUILD.bazel`:
+
+```starlark
+load("@rules_rust//crate_universe:defs.bzl", "crates_vendor")
+
+crates_vendor(
+    name = "crate_vendor",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+    mode = "remote",
+    vendor_path = "3rdparty/crates",
+    generate_build_scripts = True,
+    tags = ["manual"],
+)
+```
+
+Generate, and regenerate after a dependency bump, with:
+
+```bash
+nix develop -c bazel run //:crate_vendor
+```
+
+rules_rust calls the generated `crate_repositories()` from a WORKSPACE file.
+flazel disables WORKSPACE, so wrap it in a module extension:
+
+```starlark
+# crates_vendor_extension.bzl
+load("//3rdparty/crates:crates.bzl", "crate_repositories")
+
+def _impl(_ctx):
+    crate_repositories()
+
+crates = module_extension(implementation = _impl)
+```
+
+```starlark
+# MODULE.bazel (replaces the crate.from_cargo block above)
+crates = use_extension("//:crates_vendor_extension.bzl", "crates")
+use_repo(crates, "crate_vendor")
+```
+
+Reference crates through the hub repo: `@crate_vendor//:serde`. Only the hub is
+imported, so a dependency bump plus a re-vendor updates the versioned spoke
+repos automatically, with no hand-maintained list. The committed defs plus
+crate archives from `mkBcrCaches` make the build fully offline. Working
+example: [`tests/rust/`](tests/rust/).
 
 ## How it works
 
