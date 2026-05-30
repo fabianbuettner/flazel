@@ -166,16 +166,30 @@
         ) nonBcrDeps
       );
 
+      # Bazel keys its content-addressable cache by the hex sha256 of the archive
+      # bytes and an id marker by the hex sha256 of the source URL. Both are known
+      # at eval time (module/patch integrity is SRI; extension http_archives carry
+      # a hex sha256), so convert them here instead of re-reading every archive at
+      # build time.
+      toHex =
+        h:
+        if builtins.substring 0 7 h == "sha256-" then
+          builtins.convertHash {
+            hash = h;
+            toHashFormat = "base16";
+          }
+        else
+          h;
+      urlHash = url: builtins.hashString "sha256" url;
+
       bazelRepoCache = pkgs.runCommand "bazel-repo-cache" { } ''
         mkdir -p $out/content_addressable/sha256
 
         add_to_cache() {
-          local file=$1 url=$2
-          local HASH=$(${pkgs.coreutils}/bin/sha256sum "$file" | cut -d' ' -f1)
-          local URL_HASH=$(echo -n "$url" | ${pkgs.coreutils}/bin/sha256sum | cut -d' ' -f1)
-          mkdir -p $out/content_addressable/sha256/$HASH
-          ln -sf "$file" $out/content_addressable/sha256/$HASH/file
-          touch $out/content_addressable/sha256/$HASH/id-$URL_HASH
+          local file=$1 hash=$2 url_hash=$3
+          mkdir -p $out/content_addressable/sha256/$hash
+          ln -sf "$file" $out/content_addressable/sha256/$hash/file
+          touch $out/content_addressable/sha256/$hash/id-$url_hash
         }
 
         ${builtins.concatStringsSep "\n" (
@@ -186,11 +200,12 @@
               patches = fetchModulePatches mod;
             in
             ''
-              add_to_cache "${archive}" "${mod.archiveUrl}"
+              add_to_cache "${archive}" "${toHex mod.archiveIntegrity}" "${urlHash mod.archiveUrl}"
               ${builtins.concatStringsSep "\n" (
                 builtins.attrValues (
                   builtins.mapAttrs (
-                    name: patch: ''add_to_cache "${patch}" "${mod.baseUrl}/patches/${name}"''
+                    name: patch:
+                    ''add_to_cache "${patch}" "${toHex mod.patches.${name}}" "${urlHash "${mod.baseUrl}/patches/${name}"}"''
                   ) patches
                 )
               )}
@@ -200,7 +215,9 @@
 
         # Module-extension http_archives (rust crate deps, etc.)
         ${builtins.concatStringsSep "\n" (
-          map (a: ''add_to_cache "${fetchExtensionArchive a}" "${a.url}"'') extensionArchives
+          map (
+            a: ''add_to_cache "${fetchExtensionArchive a}" "${toHex a.sha256}" "${urlHash a.url}"''
+          ) extensionArchives
         )}
       '';
 
