@@ -16,6 +16,28 @@ def dir_exists(ctx, path):
     result = ctx.execute(["test", "-d", path])
     return result.return_code == 0
 
+def host_constraints(ctx):
+    """Best-effort @platforms cpu/os constraints for the host running the build.
+
+    Derived from repository_ctx.os so exec_compatible_with is not pinned to
+    x86_64-linux. Unknown arches fall back to x86_64 (the common case).
+
+    Args:
+      ctx: repository_ctx (uses ctx.os).
+
+    Returns:
+      A (cpu_constraint, os_constraint) tuple of @platforms// labels.
+    """
+    if ctx.os.arch in ["aarch64", "arm64"]:
+        cpu = "@platforms//cpu:aarch64"
+    else:
+        cpu = "@platforms//cpu:x86_64"
+    if "mac" in ctx.os.name or "darwin" in ctx.os.name:
+        os = "@platforms//os:macos"
+    else:
+        os = "@platforms//os:linux"
+    return cpu, os
+
 def symlink_if_exists(ctx, src, name):
     """Symlink src to name inside the repository if src exists.
 

@@ -30,7 +30,7 @@ Libraries are accessed as @libjpeg//:libjpeg - the correct architecture
 is automatically selected based on --platforms.
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path", "symlink_if_exists")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "host_constraints", "init_extension", "resolve_path", "symlink_if_exists")
 
 # Keep in sync with lib/core/platform.nix
 _CPU_CONSTRAINTS = {
@@ -158,6 +158,10 @@ def _stub_cc_cross_repo_impl(repository_ctx):
     target_cpu = repository_ctx.attr.target_cpu
     target_os = repository_ctx.attr.target_os
 
+    # Exec platform = the host running the build, detected rather than assumed
+    # x86_64-linux, so the stub resolves on non-x86_64-linux hosts too.
+    exec_cpu, exec_os = host_constraints(repository_ctx)
+
     repository_ctx.file("cc_toolchain_config.bzl", """\
 def _impl(ctx):
     return cc_common.create_cc_toolchain_config_info(
@@ -202,8 +206,8 @@ cc_toolchain(
 toolchain(
     name = "cc_toolchain",
     exec_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
+        "{exec_cpu}",
+        "{exec_os}",
     ],
     target_compatible_with = [
         "{target_cpu}",
@@ -223,6 +227,8 @@ platform(
 """.format(
         target_cpu = target_cpu,
         target_os = target_os,
+        exec_cpu = exec_cpu,
+        exec_os = exec_os,
     ))
 
 _stub_cc_cross_repo = repository_rule(
