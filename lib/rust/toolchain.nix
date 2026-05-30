@@ -48,13 +48,13 @@ let
   execCpuConstraint = platform.cpuConstraint pkgs.stdenv.buildPlatform.parsed.cpu.name;
   execOsConstraint = platform.osConstraint pkgs.stdenv.buildPlatform.parsed.kernel.name;
 
-  # Map a rust target triple to Bazel [cpu, os] constraints. Rust triples are
+  # Resolve a rust target triple to platform { cpu, os } names. Rust triples are
   # irregular: "x86_64-unknown-linux-gnu" (arch-vendor-os-env), "aarch64-apple-ios"
   # (arch-vendor-os), and bare-metal ones like "thumbv7em-none-eabi" or
   # "riscv32imac-unknown-none-elf" where the system is the literal "none" and the
   # arch is a fine-grained family name. So detect bare metal by the "none"
   # component, and fold embedded arch families into a platform cpu.
-  rustTargetConstraints =
+  rustTargetInfo =
     target:
     let
       components = pkgs.lib.splitString "-" target;
@@ -84,7 +84,42 @@ let
         else
           positionalOs;
     in
-    ''"${platform.cpuConstraint cpu}", "${platform.osConstraint os}"'';
+    {
+      inherit cpu os;
+    };
+
+  # Native libs the rust stdlib links, per system, mirroring rules_rust's
+  # system_to_stdlib_linkflags. Apple targets use libSystem (not -lpthread/-ldl,
+  # which don't exist there); bare metal links nothing. Returns a Starlark list
+  # literal. Linux (and anything unlisted that flazel supports) is the default.
+  rustStdlibLinkflags =
+    os:
+    let
+      bySystem = {
+        none = [ ];
+        darwin = [
+          "-lSystem"
+          "-lresolv"
+        ];
+        macos = [
+          "-lSystem"
+          "-lresolv"
+        ];
+        ios = [
+          "-lSystem"
+          "-lobjc"
+          "-Wl,-framework,Security"
+          "-Wl,-framework,Foundation"
+          "-lresolv"
+        ];
+      };
+      flags =
+        bySystem.${os} or [
+          "-ldl"
+          "-lpthread"
+        ];
+    in
+    "[" + builtins.concatStringsSep ", " (map (f: ''"${f}"'') flags) + "]";
 
   rustToolchainBuild = pkgs.writeText "BUILD.bazel" ''
     load("@rules_rust//rust:toolchain.bzl", "rust_toolchain", "rust_stdlib_filegroup")
@@ -136,6 +171,8 @@ let
         target:
         let
           sanitized = builtins.replaceStrings [ "-" ] [ "_" ] target;
+          info = rustTargetInfo target;
+          stdlibLinkflags = rustStdlibLinkflags info.os;
         in
         ''
           rust_stdlib_filegroup(
@@ -159,14 +196,14 @@ let
               binary_ext = "",
               staticlib_ext = ".a",
               dylib_ext = ".so",
-              stdlib_linkflags = ["-lpthread", "-ldl"],
+              stdlib_linkflags = ${stdlibLinkflags},
               default_edition = "2021",
           )
 
           toolchain(
               name = "rust_toolchain_${sanitized}",
               exec_compatible_with = ["${execCpuConstraint}", "${execOsConstraint}"],
-              target_compatible_with = [${rustTargetConstraints target}],
+              target_compatible_with = ["${platform.cpuConstraint info.cpu}", "${platform.osConstraint info.os}"],
               toolchain = ":rust_toolchain_${sanitized}_impl",
               toolchain_type = "@rules_rust//rust:toolchain_type",
           )
