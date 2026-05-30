@@ -28,7 +28,6 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
-  inherit (import ../core/derivation.nix) mkBazelrcContent;
 
   # Get list of toolchain configs
   toolchainList = pkgs.lib.attrValues toolchains;
@@ -40,41 +39,35 @@ let
 
   # CC-specific setup: symlink toolchains and libs
   ccDepsSetup = ''
-        mkdir -p .nix-bazel-deps/toolchains .nix-bazel-deps/libs
+    mkdir -p .nix-bazel-deps/toolchains .nix-bazel-deps/libs
 
-        # Symlink each toolchain
-        ${pkgs.lib.concatStringsSep "\n" (
-          pkgs.lib.mapAttrsToList (name: cfg: ''
-            ln -s ${cfg.bazelNixDeps}/toolchains/${name} .nix-bazel-deps/toolchains/${name}
-          '') toolchains
-        )}
+    # Symlink each toolchain
+    ${pkgs.lib.concatStringsSep "\n" (
+      pkgs.lib.mapAttrsToList (name: cfg: ''
+        ln -s ${cfg.bazelNixDeps}/toolchains/${name} .nix-bazel-deps/toolchains/${name}
+      '') toolchains
+    )}
 
-        # Merge libs from all toolchains (each bazelNixDeps already has both
-        # suffixed and unsuffixed symlinks, e.g., boost and boost_default)
-        ${pkgs.lib.concatStringsSep "\n" (
-          pkgs.lib.mapAttrsToList (name: cfg: ''
-            for lib in ${cfg.bazelNixDeps}/libs/*; do
-              libname=$(basename "$lib")
-              # Use -f to allow later toolchains to override (e.g., default wins for unsuffixed)
-              ln -sfn "$lib" ".nix-bazel-deps/libs/$libname"
-            done
-          '') toolchains
-        )}
+    # Merge libs from all toolchains (each bazelNixDeps already has both
+    # suffixed and unsuffixed symlinks, e.g., boost and boost_default)
+    ${pkgs.lib.concatStringsSep "\n" (
+      pkgs.lib.mapAttrsToList (name: cfg: ''
+        for lib in ${cfg.bazelNixDeps}/libs/*; do
+          libname=$(basename "$lib")
+          # Use -f to allow later toolchains to override (e.g., default wins for unsuffixed)
+          ln -sfn "$lib" ".nix-bazel-deps/libs/$libname"
+        done
+      '') toolchains
+    )}
 
-        cat > .nix-bazel-deps/.bazelrc.nix << 'EOF'
-    ${
-      mkBazelrcContent {
-        toolchainLines = pkgs.lib.concatMapStrings (
-          name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
-        ) toolchainNames;
-        inherit flazelPath caches;
-      }
-    }EOF
-
-        # Write marker file with available toolchains (forces module extension re-evaluation)
-        # The nix_cc module extension reads this file to detect when toolchains change
-        echo "${pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan toolchainNames)}" > .nix-bazel-deps/.toolchain-marker
+    # Write marker file with available toolchains (forces module extension re-evaluation)
+    # The nix_cc module extension reads this file to detect when toolchains change
+    echo "${pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan toolchainNames)}" > .nix-bazel-deps/.toolchain-marker
   '';
+
+  ccToolchainLines = pkgs.lib.concatMapStrings (
+    name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
+  ) toolchainNames;
 
   # Generate toolchain info for shell hook
   toolchainInfo = pkgs.lib.concatStringsSep ", " (
@@ -91,6 +84,7 @@ coreDevShell {
     flazelPath
     ;
 
+  toolchainLines = ccToolchainLines;
   extraDepsSetup = ccDepsSetup;
 
   packages = [

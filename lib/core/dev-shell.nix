@@ -17,6 +17,8 @@
   bazel ? pkgs.bazel,
   # Path to flazel source (auto-injected, used for --override_module in .bazelrc.nix)
   flazelPath ? null,
+  # Language-specific toolchain registration lines for .bazelrc.nix
+  toolchainLines ? "",
   # Optional: extra setup script (for language-specific toolchain/libs)
   extraDepsSetup ? "",
   packages ? [ ],
@@ -34,7 +36,12 @@ pkgs.mkShell {
   shellHook = ''
     echo "=== Flazel Development Environment ==="
     ${mkFlazelDepsSetup {
-      inherit caches flazelPath;
+      inherit
+        pkgs
+        caches
+        flazelPath
+        toolchainLines
+        ;
       extraSetup = extraDepsSetup;
     }}
     echo "Created .nix-bazel-deps"

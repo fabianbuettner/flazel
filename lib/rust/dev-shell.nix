@@ -23,7 +23,6 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
-  inherit (import ../core/derivation.nix) mkBazelrcContent;
 
   toolchainList = pkgs.lib.attrValues toolchains;
   toolchainNames = pkgs.lib.attrNames toolchains;
@@ -32,56 +31,48 @@ let
   primaryCfg = builtins.head toolchainList;
 
   rustDepsSetup = ''
-        mkdir -p .nix-bazel-deps/toolchains .nix-bazel-deps/libs
+    mkdir -p .nix-bazel-deps/toolchains .nix-bazel-deps/libs
 
-        # Symlink each Rust toolchain (creates toolchains/<name>/rust/)
-        ${pkgs.lib.concatStringsSep "\n" (
-          pkgs.lib.mapAttrsToList (name: cfg: ''
-            mkdir -p .nix-bazel-deps/toolchains/${name}
-            ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/rust .nix-bazel-deps/toolchains/${name}/rust
-          '') toolchains
-        )}
+    # Symlink each Rust toolchain (creates toolchains/<name>/rust/)
+    ${pkgs.lib.concatStringsSep "\n" (
+      pkgs.lib.mapAttrsToList (name: cfg: ''
+        mkdir -p .nix-bazel-deps/toolchains/${name}
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/rust .nix-bazel-deps/toolchains/${name}/rust
+      '') toolchains
+    )}
 
-        # Symlink each CC toolchain (creates toolchains/<name>/cc/ and deps/)
-        ${pkgs.lib.concatStringsSep "\n" (
-          pkgs.lib.mapAttrsToList (name: cfg: ''
-            mkdir -p .nix-bazel-deps/toolchains/${name}
-            ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/cc .nix-bazel-deps/toolchains/${name}/cc
-            ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps .nix-bazel-deps/toolchains/${name}/deps
-          '') ccToolchains
-        )}
+    # Symlink each CC toolchain (creates toolchains/<name>/cc/ and deps/)
+    ${pkgs.lib.concatStringsSep "\n" (
+      pkgs.lib.mapAttrsToList (name: cfg: ''
+        mkdir -p .nix-bazel-deps/toolchains/${name}
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/cc .nix-bazel-deps/toolchains/${name}/cc
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps .nix-bazel-deps/toolchains/${name}/deps
+      '') ccToolchains
+    )}
 
-        cat >> .nix-bazel-deps/.bazelrc.nix << 'EOF'
-    ${
-      mkBazelrcContent {
-        toolchainLines =
-          pkgs.lib.concatMapStrings (
-            name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
-          ) ccToolchainNames
-          + pkgs.lib.concatMapStrings (
-            name:
-            let
-              cfg = toolchains.${name};
-            in
-            pkgs.lib.concatMapStrings (
-              target:
-              "build --extra_toolchains=@local_config_rust_${name}//:rust_toolchain_${
-                builtins.replaceStrings [ "-" ] [ "_" ] target
-              }\n"
-            ) cfg.targets
-          ) toolchainNames;
-        inherit flazelPath caches;
-      }
-    }EOF
+    echo "${
+      pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))
+    }" >> .nix-bazel-deps/.toolchain-marker
 
-        echo "${
-          pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))
-        }" >> .nix-bazel-deps/.toolchain-marker
-
-        ${pkgs.lib.optionalString (cargoBazel != null) ''
-          export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
-        ''}
+    ${pkgs.lib.optionalString (cargoBazel != null) ''
+      export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
+    ''}
   '';
+
+  # Register every CC toolchain (the linker) and every Rust target toolchain.
+  rustToolchainLines =
+    pkgs.lib.concatMapStrings (
+      name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
+    ) ccToolchainNames
+    + pkgs.lib.concatMapStrings (
+      name:
+      pkgs.lib.concatMapStrings (
+        target:
+        "build --extra_toolchains=@local_config_rust_${name}//:rust_toolchain_${
+          builtins.replaceStrings [ "-" ] [ "_" ] target
+        }\n"
+      ) toolchains.${name}.targets
+    ) toolchainNames;
 
   toolchainInfo = pkgs.lib.concatStringsSep ", " (
     pkgs.lib.mapAttrsToList (name: cfg: "${name} (rust ${cfg.rustVersion})") toolchains
@@ -95,6 +86,7 @@ coreDevShell {
     flazelPath
     ;
 
+  toolchainLines = rustToolchainLines;
   extraDepsSetup = rustDepsSetup;
 
   packages = [

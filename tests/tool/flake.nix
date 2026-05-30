@@ -39,13 +39,6 @@
           # sed (standalone binary) must be on PATH for nix_tool's `which` to
           # resolve it inside the sandbox.
           nativeBuildInputs = [ pkgs.gnused ];
-          # The generic mkFlazelDerivation does not emit the flazel module
-          # override (only the cc/rust wrappers do, via mkBazelrcContent), so a
-          # bare-core build must supply it. Without this the sandbox falls back
-          # to MODULE.bazel's local_path_override "../..", which points outside src.
-          extraDepsSetup = ''
-            echo "build --override_module=flazel=${flazel.outPath}" >> .nix-bazel-deps/.bazelrc.nix
-          '';
           bazelCommand = "build //:via_symlink //:via_bin";
           installPhase = ''
             for target in via_symlink via_bin; do

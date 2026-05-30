@@ -30,27 +30,14 @@ let
   coreDeriv = import ../core/derivation.nix;
 
   rustDepsSetup = ''
-        mkdir -p .nix-bazel-deps/toolchains
-        ln -s ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} .nix-bazel-deps/toolchains/${cfg.toolchainName}
+    mkdir -p .nix-bazel-deps/toolchains
+    ln -s ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} .nix-bazel-deps/toolchains/${cfg.toolchainName}
 
-        echo "${cfg.toolchainName}" >> .nix-bazel-deps/.toolchain-marker
+    echo "${cfg.toolchainName}" >> .nix-bazel-deps/.toolchain-marker
 
-        cat >> .nix-bazel-deps/.bazelrc.nix << 'BAZELRC'
-    ${
-      coreDeriv.mkBazelrcContent {
-        toolchainLines = pkgs.lib.concatMapStrings (
-          target:
-          "build --extra_toolchains=@local_config_rust_${cfg.toolchainName}//:rust_toolchain_${
-            builtins.replaceStrings [ "-" ] [ "_" ] target
-          }\n"
-        ) cfg.targets;
-        inherit flazelPath caches;
-      }
-    }BAZELRC
-
-        ${pkgs.lib.optionalString (cargoBazel != null) ''
-          export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
-        ''}
+    ${pkgs.lib.optionalString (cargoBazel != null) ''
+      export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
+    ''}
   '';
 in
 coreDeriv.mkFlazelDerivation {
@@ -65,6 +52,12 @@ coreDeriv.mkFlazelDerivation {
     installPhase
     ;
 
+  toolchainLines = pkgs.lib.concatMapStrings (
+    target:
+    "build --extra_toolchains=@local_config_rust_${cfg.toolchainName}//:rust_toolchain_${
+      builtins.replaceStrings [ "-" ] [ "_" ] target
+    }\n"
+  ) cfg.targets;
   extraDepsSetup = rustDepsSetup;
 
   nativeBuildInputs = [

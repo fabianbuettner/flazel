@@ -33,20 +33,12 @@ let
   # CC-specific setup: symlink toolchain and libs
   # Uses new directory structure: toolchains/<name>/cc, toolchains/<name>/deps
   ccDepsSetup = ''
-        mkdir -p .nix-bazel-deps/toolchains
-        ln -s ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} .nix-bazel-deps/toolchains/${cfg.toolchainName}
-        ln -s ${cfg.bazelNixDeps}/libs .nix-bazel-deps/libs
+    mkdir -p .nix-bazel-deps/toolchains
+    ln -s ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} .nix-bazel-deps/toolchains/${cfg.toolchainName}
+    ln -s ${cfg.bazelNixDeps}/libs .nix-bazel-deps/libs
 
-        # Write marker file (must match dev-shell.nix for lockfile consistency)
-        echo "${cfg.toolchainName}" > .nix-bazel-deps/.toolchain-marker
-
-        cat > .nix-bazel-deps/.bazelrc.nix << 'BAZELRC'
-    ${
-      coreDeriv.mkBazelrcContent {
-        toolchainLines = "build --extra_toolchains=@local_config_cc_${cfg.toolchainName}//:cc_toolchain\n";
-        inherit flazelPath caches;
-      }
-    }BAZELRC
+    # Write marker file (must match dev-shell.nix for lockfile consistency)
+    echo "${cfg.toolchainName}" > .nix-bazel-deps/.toolchain-marker
   '';
 in
 coreDeriv.mkFlazelDerivation {
@@ -61,6 +53,7 @@ coreDeriv.mkFlazelDerivation {
     installPhase
     ;
 
+  toolchainLines = "build --extra_toolchains=@local_config_cc_${cfg.toolchainName}//:cc_toolchain\n";
   extraDepsSetup = ccDepsSetup;
 
   nativeBuildInputs = [

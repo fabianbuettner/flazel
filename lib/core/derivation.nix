@@ -40,15 +40,27 @@ rec {
     + toolchainLines
     + (mkBazelrcFooter { inherit flazelPath caches; });
 
-  # Generate shell script to set up .nix-bazel-deps directory (core setup)
+  # Generate shell script to set up .nix-bazel-deps directory (core setup).
+  # Writes the framework .bazelrc.nix (flazel override + non-BCR overrides plus
+  # whatever toolchain registration lines the language module supplies). Language
+  # modules add only their symlinks and marker via extraSetup; a bare-core build
+  # still gets the flazel override because toolchainLines defaults to empty.
   mkFlazelDepsSetup =
     {
+      pkgs,
       caches,
       # Path to flazel source (auto-injected, used for --override_module in .bazelrc.nix)
       flazelPath ? null,
+      # Language-specific toolchain registration lines (e.g. --extra_toolchains)
+      toolchainLines ? "",
       # Optional: additional setup for toolchain/libs (provided by language modules)
       extraSetup ? "",
     }:
+    let
+      bazelrc = pkgs.writeText "flazel-bazelrc.nix" (mkBazelrcContent {
+        inherit toolchainLines flazelPath caches;
+      });
+    in
     ''
       # Create .nix-bazel-deps with writable caches
       rm -rf .nix-bazel-deps
@@ -56,6 +68,11 @@ rec {
       cp -rL ${caches.bazelRepoCache} .nix-bazel-deps/repo-cache
       cp -rL ${caches.bazelRegistryCache} .nix-bazel-deps/registry
       chmod -R u+w .nix-bazel-deps/repo-cache .nix-bazel-deps/registry
+
+      # Framework bazelrc (override + non-BCR + toolchains). The build appends
+      # the offline cache flags after this; the dev shell leaves it as-is.
+      cp ${bazelrc} .nix-bazel-deps/.bazelrc.nix
+      chmod u+w .nix-bazel-deps/.bazelrc.nix
       ${extraSetup}
     '';
 
@@ -74,6 +91,8 @@ rec {
       flazelPath ? null,
       # Optional: extra setup script (for language-specific toolchain/libs)
       extraDepsSetup ? "",
+      # Language-specific toolchain registration lines for .bazelrc.nix
+      toolchainLines ? "",
       nativeBuildInputs ? [ ],
       buildInputs ? [ ],
       runtimeDependencies ? [ ],
@@ -98,7 +117,12 @@ rec {
       buildPhase = ''
         export HOME=$TMPDIR
         ${mkFlazelDepsSetup {
-          inherit caches flazelPath;
+          inherit
+            pkgs
+            caches
+            flazelPath
+            toolchainLines
+            ;
           extraSetup = extraDepsSetup;
         }}
         # Point Bazel at pre-fetched caches (no network in Nix sandbox)
