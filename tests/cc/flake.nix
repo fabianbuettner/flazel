@@ -68,9 +68,16 @@
           inherit pkgs;
           compiler = "clang";
         };
+
+        # Fully static (musl) toolchain: the other axis of static-vs-dynamic.
+        # Produces a binary with no dynamic dependencies at all.
+        staticCfg = flazel.lib.cc.mkConfig {
+          inherit pkgs;
+          static = true;
+        };
       in
       {
-        # nix flake check builds both; nix build .#checks.<system>.clang runs one.
+        # nix flake check builds all; nix build .#checks.<system>.clang runs one.
         checks = {
           gcc = mkCcCheck {
             name = "flazel-cc-gcc";
@@ -79,6 +86,10 @@
           clang = mkCcCheck {
             name = "flazel-cc-clang";
             cfg = clangCfg;
+          };
+          static = mkCcCheck {
+            name = "flazel-cc-static";
+            cfg = staticCfg;
           };
         };
 

@@ -30,8 +30,11 @@ def _nix_tool_impl(repository_ctx):
         # Wrapper script that invokes the tool by its resolved absolute path.
         # We can't use sh_binary or native_binary because NixOS patches bash to
         # create argv[0]-based launchers that break when Bazel renames binaries.
+        # /bin/sh (not /usr/bin/env bash): the body is POSIX, and a pure nix
+        # build sandbox provides /bin/sh but not /usr/bin/env, so this keeps the
+        # wrapper runnable in hermetic sandboxed actions. Matches the stub below.
         repository_ctx.file("wrapper.sh", """\
-#!/usr/bin/env bash
+#!/bin/sh
 exec {real_path} "$@"
 """.format(real_path = real_path), executable = True)
     else:

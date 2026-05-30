@@ -15,3 +15,16 @@ bzl_library(
         "@bazel_tools//tools/build_defs/cc:action_names",
     ],
 )
+
+bzl_library(
+    name = "nix_rust",
+    srcs = ["nix_rust.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [":nix_common"],
+)
+
+bzl_library(
+    name = "nix_tool",
+    srcs = ["nix_tool.bzl"],
+    visibility = ["//visibility:public"],
+)

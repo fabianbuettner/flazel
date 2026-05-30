@@ -1,0 +1,20 @@
+module(
+    name = "flazel-tool-test",
+    version = "0.0.1",
+)
+
+bazel_dep(name = "flazel", version = "0.0.1")
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+# Expose the devshell "sed" binary to Bazel under the repo name "upcase",
+# mirroring downstream usage (name != binary_name). sed is a standalone binary;
+# multicall binaries like coreutils would break the argv[0]-based dispatch.
+nix_tool = use_repo_rule("@flazel//bazel:nix_tool.bzl", "nix_tool")
+
+nix_tool(
+    name = "upcase",
+    binary_name = "sed",
+)

@@ -1,0 +1,22 @@
+# nix_tool integration test: a Nix devshell tool ("tr", exposed under the repo
+# name "upcase") driven through both target shapes nix_tool produces.
+
+# Raw symlink: $(location @upcase) -> the resolved Nix store binary. This is the
+# genrule shorthand downstream projects use (e.g. $(location @magick-bin)).
+genrule(
+    name = "via_symlink",
+    srcs = ["in.txt"],
+    outs = ["via_symlink.txt"],
+    cmd = "$(location @upcase) 's/ok/OK/' < $< > $@",
+    tools = ["@upcase"],
+)
+
+# Executable target: @upcase//:bin is the wrapper.sh-backed nix_executable that
+# execs the resolved store path. Exercises the NixOS-launcher workaround path.
+genrule(
+    name = "via_bin",
+    srcs = ["in.txt"],
+    outs = ["via_bin.txt"],
+    cmd = "$(location @upcase//:bin) 's/ok/OK/' < $< > $@",
+    tools = ["@upcase//:bin"],
+)
