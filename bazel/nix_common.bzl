@@ -6,7 +6,7 @@ with .nix-bazel-deps/.
 
 NIX_DEPS_DIR = ".nix-bazel-deps"
 
-def file_exists(ctx, path):
+def path_exists(ctx, path):
     """Check if a file/path exists (works with both repository_ctx and module_ctx)."""
     result = ctx.execute(["test", "-e", path])
     return result.return_code == 0
@@ -49,7 +49,7 @@ def symlink_if_exists(ctx, src, name):
     Returns:
       True if the symlink was created, False if src was absent.
     """
-    if file_exists(ctx, src):
+    if path_exists(ctx, src):
         ctx.symlink(src, name)
         return True
     return False
@@ -83,6 +83,6 @@ def init_extension(module_ctx):
     if not dir_exists(module_ctx, nix_deps):
         fail("Nix dependencies not found at {}. Run 'nix develop' first.".format(nix_deps))
     marker_path = nix_deps + "/.toolchain-marker"
-    if file_exists(module_ctx, marker_path):
+    if path_exists(module_ctx, marker_path):
         module_ctx.read(marker_path)
     return nix_deps

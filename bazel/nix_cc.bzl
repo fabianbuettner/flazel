@@ -30,7 +30,7 @@ Libraries are accessed as @libjpeg//:libjpeg - the correct architecture
 is automatically selected based on --platforms.
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "host_constraints", "init_extension", "resolve_path", "symlink_if_exists")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "host_constraints", "init_extension", "path_exists", "resolve_path", "symlink_if_exists")
 
 # Keep in sync with lib/core/platform.nix
 _CPU_CONSTRAINTS = {
@@ -60,12 +60,12 @@ def _nix_cc_repo_impl(repository_ctx):
     path = resolve_path(repository_ctx, repository_ctx.attr.path)
 
     build_file = path + "/BUILD.bazel"
-    if not file_exists(repository_ctx, build_file):
+    if not path_exists(repository_ctx, build_file):
         fail("BUILD.bazel file not found at {}. Path: {}".format(build_file, path))
     repository_ctx.symlink(build_file, "BUILD.bazel")
 
     config_file = path + "/cc_toolchain_config.bzl"
-    if not file_exists(repository_ctx, config_file):
+    if not path_exists(repository_ctx, config_file):
         fail("cc_toolchain_config.bzl not found at {}".format(config_file))
     repository_ctx.symlink(config_file, "cc_toolchain_config.bzl")
 
@@ -90,7 +90,7 @@ def _nix_cc_deps_repo_impl(repository_ctx):
     path = resolve_path(repository_ctx, repository_ctx.attr.path)
 
     build_file = path + "/BUILD.bazel"
-    if not file_exists(repository_ctx, build_file):
+    if not path_exists(repository_ctx, build_file):
         fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
 
     result = repository_ctx.execute(["ls", "-1", path])
@@ -250,7 +250,7 @@ def _nix_lib_repo_impl(repository_ctx):
     path = resolve_path(repository_ctx, repository_ctx.attr.path)
 
     build_file = path + "/BUILD.bazel"
-    if not file_exists(repository_ctx, build_file):
+    if not path_exists(repository_ctx, build_file):
         fail("BUILD.bazel not found at '{}' (relative path: '{}')".format(build_file, repository_ctx.attr.path))
     repository_ctx.symlink(build_file, "BUILD.bazel")
 

@@ -11,14 +11,14 @@ Usage in MODULE.bazel:
     use_repo(nix_rust, "local_config_rust_default")
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path", "symlink_if_exists")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "init_extension", "path_exists", "resolve_path", "symlink_if_exists")
 
 def _nix_rust_repo_impl(repository_ctx):
     """Creates a Rust toolchain repository by symlinking to a Nix store path."""
     path = resolve_path(repository_ctx, repository_ctx.attr.path)
 
     build_file = path + "/BUILD.bazel"
-    if not file_exists(repository_ctx, build_file):
+    if not path_exists(repository_ctx, build_file):
         fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
     repository_ctx.symlink(build_file, "BUILD.bazel")
 

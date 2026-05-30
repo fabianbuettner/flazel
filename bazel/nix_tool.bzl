@@ -1,4 +1,12 @@
-"""Repository rule to expose Nix tools to Bazel."""
+"""Repository rule to expose Nix tools to Bazel.
+
+Limitation: this works for standalone binaries (imagemagick, openssl, glslc,
+clang-tidy, ...). It does NOT work for multicall binaries such as nixpkgs'
+coreutils, where one executable dispatches on argv[0]: the rule symlinks the
+tool under the repository name and resolves it with `readlink -f`, both of
+which lose the applet name, so the binary runs as the wrong (or unknown)
+program. Expose such tools via their own single-applet package instead.
+"""
 
 def _nix_tool_impl(repository_ctx):
     """Creates a repository with a symlink to a Nix tool.

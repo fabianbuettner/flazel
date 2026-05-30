@@ -27,7 +27,6 @@
 let
   devPkg = pkg.dev or pkg;
   libPkg = pkg.out or pkg;
-  pname = pkg.pname or pkg.name or name;
 
   # Header glob shared by every generated cc_library (dynamic, header-only, static)
   hdrsGlob = ''glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True)'';
@@ -115,24 +114,17 @@ let
     )
     HEADERONLY
     else
-      # Has static libraries - use cc_import
-      # Find the main library file (try exact match first, then prefix match)
-      main_lib=""
-      if [ -f "$out/lib/lib${pname}.a" ]; then
-        main_lib="lib${pname}.a"
-      elif [ -f "$out/lib/${pname}.a" ]; then
-        main_lib="${pname}.a"
-      else
-        # Try to find a library that starts with the pname
-        main_lib=$(ls "$out/lib/" | grep -E "^lib${pname}[^a-z].*\.a$" | head -1 || true)
-        if [ -z "$main_lib" ]; then
-          # Fall back to first .a file
-          main_lib=$(find "$out/lib" -maxdepth 1 -name '*.a' -type f | head -1 | xargs -r basename || true)
-        fi
-      fi
+      # Has static libraries: emit a cc_import per .a (single pass over
+      # $a_files) plus a cc_library depending on them. Target order within a
+      # BUILD file is irrelevant to Bazel, so the library comes last.
+      cat > $out/BUILD.bazel <<HEADEREOF
+    load("@rules_cc//cc:cc_library.bzl", "cc_library")
+    load("@rules_cc//cc:cc_import.bzl", "cc_import")
 
-      # Collect all .a files as cc_import dependencies for the cc_library
-      # Use -lib suffix to avoid name conflicts with the cc_library
+    package(default_visibility = ["//visibility:public"])
+    HEADEREOF
+
+      # Use -lib suffix to avoid name conflicts with the cc_library.
       dep_imports=""
       for lib in $a_files; do
         [ -f "$lib" ] || continue
@@ -140,29 +132,6 @@ let
         # Convert libfoo.a -> foo-lib (strip lib prefix and .a suffix, add -lib)
         dep_name=$(echo "$libfile" | sed 's/^lib//; s/\.a$//')
         dep_imports="$dep_imports\":$dep_name-lib\", "
-      done
-
-      # Generate BUILD.bazel with cc_library that has hdrs/includes
-      # and depends on all cc_imports
-      cat > $out/BUILD.bazel <<BUILDEOF
-    load("@rules_cc//cc:cc_library.bzl", "cc_library")
-    load("@rules_cc//cc:cc_import.bzl", "cc_import")
-
-    package(default_visibility = ["//visibility:public"])
-
-    cc_library(
-        name = "${name}",
-        hdrs = ${hdrsGlob},
-        includes = ["include"],
-        deps = [$dep_imports],
-    )
-    BUILDEOF
-
-      # Generate cc_import for each .a file (with -lib suffix)
-      for lib in $a_files; do
-        [ -f "$lib" ] || continue
-        libfile=$(basename "$lib")
-        dep_name=$(echo "$libfile" | sed 's/^lib//; s/\.a$//')
         cat >> $out/BUILD.bazel <<DEPEOF
 
     cc_import(
@@ -171,6 +140,16 @@ let
     )
     DEPEOF
       done
+
+      cat >> $out/BUILD.bazel <<LIBEOF
+
+    cc_library(
+        name = "${name}",
+        hdrs = ${hdrsGlob},
+        includes = ["include"],
+        deps = [$dep_imports],
+    )
+    LIBEOF
     fi
   '';
 in
