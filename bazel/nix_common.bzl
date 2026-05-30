@@ -16,6 +16,22 @@ def dir_exists(ctx, path):
     result = ctx.execute(["test", "-d", path])
     return result.return_code == 0
 
+def symlink_if_exists(ctx, src, name):
+    """Symlink src to name inside the repository if src exists.
+
+    Args:
+      ctx: repository_ctx or module_ctx.
+      src: absolute source path to symlink.
+      name: link name to create in the repository root.
+
+    Returns:
+      True if the symlink was created, False if src was absent.
+    """
+    if file_exists(ctx, src):
+        ctx.symlink(src, name)
+        return True
+    return False
+
 def resolve_path(ctx, relative_path = NIX_DEPS_DIR):
     """Resolve a relative path from the workspace root.
 

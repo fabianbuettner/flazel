@@ -1,0 +1,24 @@
+module(
+    name = "flazel-cc-test",
+    version = "0.0.1",
+)
+
+bazel_dep(name = "rules_cc", version = "0.1.4")
+bazel_dep(name = "flazel", version = "0.0.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+# CC toolchain. The flake symlinks a different cfg (gcc, clang, ...) as the
+# "default" toolchain per check, so a single declared name covers the matrix
+# without two toolchains colliding on the same x86_64-linux platform.
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(
+    nix_cc,
+    "local_config_cc_default",
+    "local_config_cc_default_deps",
+)

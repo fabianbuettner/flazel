@@ -29,6 +29,9 @@ let
   libPkg = pkg.out or pkg;
   pname = pkg.pname or pkg.name or name;
 
+  # Header glob shared by every generated cc_library (dynamic, header-only, static)
+  hdrsGlob = ''glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True)'';
+
   # Check if a package is a library (has lib/*.a files)
   isLibrary =
     dep:
@@ -51,7 +54,7 @@ let
 
     cc_library(
         name = "${name}",
-        hdrs = glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True),
+        hdrs = ${hdrsGlob},
         # Match only top-level shared libraries. Files under lib/<pkg>/ are
         # runtime plugins / LD_PRELOAD shims (cairo-trace, gstreamer plugins,
         # pango modules, etc.) and must not be added to DT_NEEDED.
@@ -107,7 +110,7 @@ let
 
     cc_library(
         name = "${name}",
-        hdrs = glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True),
+        hdrs = ${hdrsGlob},
         includes = ["include"],
     )
     HEADERONLY
@@ -149,7 +152,7 @@ let
 
     cc_library(
         name = "${name}",
-        hdrs = glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True),
+        hdrs = ${hdrsGlob},
         includes = ["include"],
         deps = [$dep_imports],
     )

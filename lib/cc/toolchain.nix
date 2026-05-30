@@ -93,9 +93,16 @@ let
   clangLib = clangUnwrapped.lib;
   # LLVM major version for resource directory path (e.g., "19" from "19.1.7")
   clangMajorVersion = builtins.head (pkgs.lib.splitString "." clangUnwrapped.version);
-  # LLVM bintools (ar, nm, objdump, etc.)
+  # LLVM bintools (ar, nm, objdump, etc.) taken from the LLVM release that
+  # matches the clang in use, so the resource-dir version and the bintools
+  # cannot disagree. Override via llvmBintools for a clang nixpkgs has no
+  # matching llvmPackages_<major> for.
   effectiveLlvmBintools =
-    if llvmBintools != null then llvmBintools else pkgs.llvmPackages_19.bintools-unwrapped;
+    if llvmBintools != null then
+      llvmBintools
+    else
+      pkgs."llvmPackages_${clangMajorVersion}".bintools-unwrapped
+        or (throw "nixpkgs has no llvmPackages_${clangMajorVersion} (from clang ${clangUnwrapped.version}); pass llvmBintools explicitly to lib.cc.mkConfig");
 
   # Linker resolution
   effectiveLinker =
@@ -226,8 +233,10 @@ let
       ''
     else if isClang then
       ''
-        ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc-lib/lib",
+        ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc-lib-shared/lib",
+        "-Lexternal/${depsRepoName}/gcc-lib/lib",
         "-Lexternal/${depsRepoName}/libc/lib",
+        "-Wl,-rpath,${effectiveGcc.cc.lib or effectiveGcc.cc}/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
         "-Wl,--dynamic-linker=${libc}/lib/ld-linux-x86-64.so.2",
@@ -239,8 +248,10 @@ let
     else
       ''
         ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc/lib/gcc/${targetTriple}/${gccVersion}",
+        "-Lexternal/${depsRepoName}/gcc-lib-shared/lib",
         "-Lexternal/${depsRepoName}/gcc-lib/lib",
         "-Lexternal/${depsRepoName}/libc/lib",
+        "-Wl,-rpath,${effectiveGcc.cc.lib or effectiveGcc.cc}/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
         "-Wl,--dynamic-linker=${libc}/lib/ld-linux-x86-64.so.2",
@@ -382,7 +393,7 @@ let
   builtinIncludeDirs =
     if isClang then
       ''
-                  "${clangLib}/lib/clang/${clangMajorVersion}/include",
+                  "${toolchainClang}/resource-root/include",
                   "${effectiveGcc.cc}/include/c++/${gccVersion}",
                   "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
         ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}''
@@ -633,11 +644,16 @@ let
                     )],
                 ),
                 feature(
+                    # _FORTIFY_SOURCE is a no-op without optimization: at -O0 glibc
+                    # disables it and warns. Gate it on the opt feature (the only one
+                    # that adds -O) so it applies exactly where it works, like
+                    # gc_sections and split_debug below.
                     name = "fortify_source",
                     enabled = True,
                     flag_sets = [flag_set(
                         actions = _COMPILE_ACTIONS,
                         flag_groups = [flag_group(flags = ["-D_FORTIFY_SOURCE=3"])],
+                        with_features = [with_feature_set(features = ["opt"])],
                     )],
                 ),
                 feature(
@@ -838,6 +854,10 @@ let
     echo 'filegroup(name = "all", srcs = glob(["**/*"]))' >> $out/BUILD.bazel
     ln -s ${effectiveGcc} $out/gcc
     ln -s ${effectiveGcc.cc} $out/gcc-lib
+    # gcc's "lib" output holds the shared libstdc++.so (the "out" output above
+    # has only the static .a). Exposed so the link search path can prefer the
+    # shared C++ runtime for both gcc and clang.
+    ln -s ${effectiveGcc.cc.lib or effectiveGcc.cc} $out/gcc-lib-shared
     ${if isClang then "ln -s ${clangLib} $out/clang-lib" else ""}
     ${if libc != null then "ln -s ${libc} $out/libc" else ""}
     ${if libcDev != null then "ln -s ${libcDev} $out/libc-dev" else ""}

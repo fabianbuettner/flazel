@@ -1,0 +1,11 @@
+# Nix-generated toolchain config (created by nix develop / nix build)
+try-import .nix-bazel-deps/.bazelrc.nix
+
+# Use repo cache from Nix (BCR modules pre-fetched)
+build --repository_cache=.nix-bazel-deps/repo-cache
+
+# Hermeticity
+build --incompatible_strict_action_env
+
+# Test output
+test --test_output=errors

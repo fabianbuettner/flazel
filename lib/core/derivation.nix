@@ -104,6 +104,10 @@ rec {
         # Point Bazel at pre-fetched caches (no network in Nix sandbox)
         echo "build --registry=file://$(pwd)/.nix-bazel-deps/registry" >> .nix-bazel-deps/.bazelrc.nix
         echo "build --repository_cache=$(pwd)/.nix-bazel-deps/repo-cache" >> .nix-bazel-deps/.bazelrc.nix
+        # Pure bzlmod: the legacy WORKSPACE suffix (still on by default in Bazel 7)
+        # pulls deps like bazel_skylib straight from github via maybe(http_archive),
+        # which the BCR cache cannot cover and which fail in the offline sandbox.
+        echo "common --noenable_workspace" >> .nix-bazel-deps/.bazelrc.nix
         bazel --output_user_root=${bazelOutputBase} ${bazelCommand}
       '';
     };

@@ -11,7 +11,7 @@ Usage in MODULE.bazel:
     use_repo(nix_rust, "local_config_rust_default")
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path", "symlink_if_exists")
 
 def _nix_rust_repo_impl(repository_ctx):
     """Creates a Rust toolchain repository by symlinking to a Nix store path."""
@@ -22,13 +22,8 @@ def _nix_rust_repo_impl(repository_ctx):
         fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
     repository_ctx.symlink(build_file, "BUILD.bazel")
 
-    bin_dir = path + "/bin"
-    if file_exists(repository_ctx, bin_dir):
-        repository_ctx.symlink(bin_dir, "bin")
-
-    lib_dir = path + "/lib"
-    if file_exists(repository_ctx, lib_dir):
-        repository_ctx.symlink(lib_dir, "lib")
+    symlink_if_exists(repository_ctx, path + "/bin", "bin")
+    symlink_if_exists(repository_ctx, path + "/lib", "lib")
 
 _nix_rust_repo = repository_rule(
     implementation = _nix_rust_repo_impl,

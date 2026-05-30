@@ -30,7 +30,7 @@ Libraries are accessed as @libjpeg//:libjpeg - the correct architecture
 is automatically selected based on --platforms.
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "file_exists", "init_extension", "resolve_path", "symlink_if_exists")
 
 # Keep in sync with lib/core/platform.nix
 _CPU_CONSTRAINTS = {
@@ -68,9 +68,7 @@ def _nix_cc_repo_impl(repository_ctx):
         fail("cc_toolchain_config.bzl not found at {}".format(config_file))
     repository_ctx.symlink(config_file, "cc_toolchain_config.bzl")
 
-    bin_dir = path + "/bin"
-    if file_exists(repository_ctx, bin_dir):
-        repository_ctx.symlink(bin_dir, "bin")
+    symlink_if_exists(repository_ctx, path + "/bin", "bin")
 
 _nix_cc_repo = repository_rule(
     implementation = _nix_cc_repo_impl,
@@ -79,14 +77,27 @@ _nix_cc_repo = repository_rule(
 )
 
 def _nix_cc_deps_repo_impl(repository_ctx):
-    """Creates the toolchain deps repository."""
-    path = resolve_path(repository_ctx, repository_ctx.attr.path)
-    repository_ctx.symlink(path + "/BUILD.bazel", "BUILD.bazel")
+    """Creates the toolchain deps repository.
 
-    for dep in ["gcc", "gcc-lib", "libc", "libc-dev", "binutils"]:
-        dep_full_path = path + "/" + dep
-        if file_exists(repository_ctx, dep_full_path):
-            repository_ctx.symlink(dep_full_path, dep)
+    Mirrors every entry the Nix derivation placed in the deps directory
+    (BUILD.bazel plus gcc, gcc-lib, clang-lib, libc, libc-dev, binutils as
+    applicable). Enumerating rather than hardcoding the dep names keeps this
+    in lockstep with localConfigCcDeps in lib/cc/toolchain.nix: a hardcoded
+    list silently dropped clang-lib, leaving Clang toolchains with a dangling
+    -isystem path.
+    """
+    path = resolve_path(repository_ctx, repository_ctx.attr.path)
+
+    build_file = path + "/BUILD.bazel"
+    if not file_exists(repository_ctx, build_file):
+        fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
+
+    result = repository_ctx.execute(["ls", "-1", path])
+    if result.return_code != 0:
+        fail("Cannot list toolchain deps at {}: {}".format(path, result.stderr))
+    for entry in result.stdout.splitlines():
+        if entry:
+            repository_ctx.symlink(path + "/" + entry, entry)
 
 _nix_cc_deps_repo = repository_rule(
     implementation = _nix_cc_deps_repo_impl,
@@ -236,14 +247,9 @@ def _nix_lib_repo_impl(repository_ctx):
         fail("BUILD.bazel not found at '{}' (relative path: '{}')".format(build_file, repository_ctx.attr.path))
     repository_ctx.symlink(build_file, "BUILD.bazel")
 
-    if file_exists(repository_ctx, path + "/MODULE.bazel"):
-        repository_ctx.symlink(path + "/MODULE.bazel", "MODULE.bazel")
-
-    if file_exists(repository_ctx, path + "/include"):
-        repository_ctx.symlink(path + "/include", "include")
-
-    if file_exists(repository_ctx, path + "/lib"):
-        repository_ctx.symlink(path + "/lib", "lib")
+    symlink_if_exists(repository_ctx, path + "/MODULE.bazel", "MODULE.bazel")
+    symlink_if_exists(repository_ctx, path + "/include", "include")
+    symlink_if_exists(repository_ctx, path + "/lib", "lib")
 
 _nix_lib_repo = repository_rule(
     implementation = _nix_lib_repo_impl,
