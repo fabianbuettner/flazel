@@ -1,0 +1,24 @@
+load("@rules_rust//crate_universe:defs.bzl", "crates_vendor")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+# Binary depending on the vendored crate. The dep is a plain local target
+# (//3rdparty/crates:itoa -> committed source), so no splice/fetch at build time.
+rust_binary(
+    name = "vendor_hello",
+    srcs = ["src/main.rs"],
+    edition = "2021",
+    deps = ["//3rdparty/crates:itoa"],
+)
+
+# Regenerate the committed crate defs/sources with:
+#   nix develop -c bazel run //:crate_vendor
+# (online, using the nix host tools). `local` mode vendors crate sources as
+# plain BUILD targets, so offline builds need no fetch, splice, or host tools.
+crates_vendor(
+    name = "crate_vendor",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+    mode = "local",
+    tags = ["manual"],
+    vendor_path = "3rdparty/crates",
+)

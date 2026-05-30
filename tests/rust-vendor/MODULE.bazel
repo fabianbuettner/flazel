@@ -1,5 +1,5 @@
 module(
-    name = "flazel-rust-test",
+    name = "flazel-rust-vendor-test",
     version = "0.0.1",
 )
 
@@ -13,42 +13,24 @@ local_path_override(
     path = "../..",
 )
 
-# CC toolchain (provides linker for Rust on NixOS)
+# CC toolchain (linker for rust on NixOS).
 nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
 nix_cc.toolchain(name = "default")
-nix_cc.stub(
-    name = "ios",
-    target_cpu = "aarch64",
-    target_os = "ios",
-)
-nix_cc.stub(
-    name = "musl",
-    target_cpu = "aarch64",
-    target_os = "linux",
-)
 use_repo(
     nix_cc,
     "local_config_cc_default",
     "local_config_cc_default_deps",
-    "local_config_cc_ios",
-    "local_config_cc_ios_deps",
-    "local_config_cc_musl",
-    "local_config_cc_musl_deps",
 )
 
-# Rust toolchain (Nix-provided rustc)
+# Rust toolchain (Nix-provided rustc).
 nix_rust = use_extension("@flazel//bazel:nix_rust.bzl", "nix_rust")
 nix_rust.toolchain(name = "default")
 use_repo(nix_rust, "local_config_rust_default")
 
 register_toolchains("@local_config_rust_default//:all")
 
-register_toolchains("@local_config_cc_ios//:cc_toolchain")
-
-register_toolchains("@local_config_cc_musl//:cc_toolchain")
-
-# Host tools for crate_universe. rules_rust would download a prebuilt rustc that
-# does not run on NixOS; override it with the Nix toolchain instead.
+# Nix host tools, used only when (re)vendoring via `bazel run //:crate_vendor`.
+# Offline builds use the committed local sources and need none of this.
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
 host_tools.host_tools(
     edition = "2021",
@@ -63,15 +45,3 @@ override_repo(
     host_tools,
     rust_host_tools = "nix_rust_host_tools",
 )
-
-# Crate dependencies from Cargo.toml
-crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
-crate.from_cargo(
-    name = "crates",
-    cargo_lockfile = "//:Cargo.lock",
-    manifests = [
-        "//:Cargo.toml",
-        "//hello:Cargo.toml",
-    ],
-)
-use_repo(crate, "crates")

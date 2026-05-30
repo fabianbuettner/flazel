@@ -1,0 +1,13 @@
+[package]
+name = "vendor-hello"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "vendor_hello"
+path = "src/main.rs"
+
+[dependencies]
+# Tiny, zero-dependency crate: keeps the vendored output to a single crate while
+# still exercising the full crate_universe vendoring pipeline.
+itoa = "1"

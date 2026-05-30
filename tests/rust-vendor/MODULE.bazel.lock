@@ -121,10 +121,10 @@
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
         "bzlTransitiveDigest": "z4kkBECmeGpgZSwDyFfu7bIXyoCtvLKbK0EQS7TkA+8=",
-        "usagesDigest": "QSh2CIyAodeCZ7JIvQ28fJmCKEzQPow4j+qotDe4sWA=",
+        "usagesDigest": "QpcpA30G1lv5ge+PINLNsO59igzIYLcvp/A5fIpxp7E=",
         "recordedFileInputs": {
           "@@//.nix-bazel-deps/.toolchain-marker": "a8c85f83b4932daa61f7ef43965d33cf7fe68cb47d5462c68832a48842e5f98c",
-          "@@//MODULE.bazel": "309e70cdab132faea3bab7114d62f495b506d8a352211e43c25166c2c824c093"
+          "@@//MODULE.bazel": "6f263045985fe818ff4d8cf4dc8fa79e42dd4b1f9ab309d91f4fc56be9e76d03"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -142,34 +142,6 @@
             "attributes": {
               "path": ".nix-bazel-deps/toolchains/default/deps"
             }
-          },
-          "local_config_cc_ios": {
-            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
-            "ruleClassName": "_stub_cc_cross_repo",
-            "attributes": {
-              "toolchain_name": "ios",
-              "target_cpu": "@platforms//cpu:aarch64",
-              "target_os": "@platforms//os:ios"
-            }
-          },
-          "local_config_cc_ios_deps": {
-            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
-            "ruleClassName": "_stub_cc_deps_repo",
-            "attributes": {}
-          },
-          "local_config_cc_musl": {
-            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
-            "ruleClassName": "_stub_cc_cross_repo",
-            "attributes": {
-              "toolchain_name": "musl",
-              "target_cpu": "@platforms//cpu:aarch64",
-              "target_os": "@platforms//os:linux"
-            }
-          },
-          "local_config_cc_musl_deps": {
-            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
-            "ruleClassName": "_stub_cc_deps_repo",
-            "attributes": {}
           }
         },
         "recordedRepoMappingEntries": []
@@ -178,10 +150,10 @@
     "@@flazel~//bazel:nix_rust.bzl%nix_rust": {
       "general": {
         "bzlTransitiveDigest": "rEyqA+cDhkiIQHiR5rpzNNg4B7PklZq0WN3H8mEFpZY=",
-        "usagesDigest": "4VR/HwR/LJtDZmWlXOWKRG59lEaKggnu3+neSqmuiXY=",
+        "usagesDigest": "NDjdzKXhP/kzYr9+5zBtLE+NcZSdnOaxQZqvEghgsP4=",
         "recordedFileInputs": {
           "@@//.nix-bazel-deps/.toolchain-marker": "a8c85f83b4932daa61f7ef43965d33cf7fe68cb47d5462c68832a48842e5f98c",
-          "@@//MODULE.bazel": "309e70cdab132faea3bab7114d62f495b506d8a352211e43c25166c2c824c093"
+          "@@//MODULE.bazel": "6f263045985fe818ff4d8cf4dc8fa79e42dd4b1f9ab309d91f4fc56be9e76d03"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},

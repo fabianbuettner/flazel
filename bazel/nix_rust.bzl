@@ -83,3 +83,47 @@ nix_rust = module_extension(
         "toolchain": _toolchain_tag,
     },
 )
+
+def _nix_rust_host_tools_impl(repository_ctx):
+    """Exposes the Nix rust toolchain as @rust_host_tools.
+
+    crate_universe runs a host cargo/rustc at repo-eval to resolve the crate
+    graph, which rules_rust supplies by downloading a prebuilt rustc that does
+    not run on NixOS. Point it at the Nix toolchain instead by overriding the
+    rust_host_tools repo in MODULE.bazel:
+
+        host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
+        host_tools.host_tools(edition = "2021", version = "1.85.0")
+        nix_host = use_repo_rule("@flazel//bazel:nix_rust.bzl", "nix_rust_host_tools")
+        nix_host(name = "nix_rust_host_tools")
+        override_repo(host_tools, rust_host_tools = "nix_rust_host_tools")
+
+    crate_universe only references @rust_host_tools//:bin/{cargo,rustc}; rustc and
+    cargo find their sysroot via their real Nix store path, so only the binaries
+    are exposed here.
+    """
+    rust = resolve_path(repository_ctx, repository_ctx.attr.path)
+    if not dir_exists(repository_ctx, rust + "/bin"):
+        fail("Nix rust toolchain not found at {}/bin. Run 'nix develop' first.".format(rust))
+    for tool in ["cargo", "rustc"]:
+        repository_ctx.symlink(rust + "/bin/" + tool, "bin/" + tool)
+    repository_ctx.file("BUILD.bazel", """\
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "bin/cargo",
+    "bin/rustc",
+])
+""")
+
+nix_rust_host_tools = repository_rule(
+    implementation = _nix_rust_host_tools_impl,
+    attrs = {
+        "path": attr.string(
+            default = NIX_DEPS_DIR + "/toolchains/default/rust",
+            doc = "Path (relative to workspace root) to the Nix rust toolchain dir.",
+        ),
+    },
+    local = True,
+    doc = "Exposes the Nix rust toolchain as @rust_host_tools for crate_universe.",
+)
