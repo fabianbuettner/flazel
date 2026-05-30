@@ -1,5 +1,5 @@
-# nix_tool integration test: a Nix devshell tool ("tr", exposed under the repo
-# name "upcase") driven through both target shapes nix_tool produces.
+# nix_tool integration test. A standalone tool (sed, as @upcase) and a multicall
+# tool (coreutils tr, as @upper) are each driven through both target shapes.
 
 # Raw symlink: $(location @upcase) -> the resolved Nix store binary. This is the
 # genrule shorthand downstream projects use (e.g. $(location @magick-bin)).
@@ -19,4 +19,23 @@ genrule(
     outs = ["via_bin.txt"],
     cmd = "$(location @upcase//:bin) 's/ok/OK/' < $< > $@",
     tools = ["@upcase//:bin"],
+)
+
+# Multicall (coreutils tr) via the @repo shorthand: only works if argv[0] is the
+# applet name "tr" rather than the repo name "upper".
+genrule(
+    name = "multicall_symlink",
+    srcs = ["in.txt"],
+    outs = ["multicall_symlink.txt"],
+    cmd = "$(location @upper) a-z A-Z < $< > $@",
+    tools = ["@upper"],
+)
+
+# Multicall via the wrapper executable.
+genrule(
+    name = "multicall_bin",
+    srcs = ["in.txt"],
+    outs = ["multicall_bin.txt"],
+    cmd = "$(location @upper//:bin) a-z A-Z < $< > $@",
+    tools = ["@upper//:bin"],
 )

@@ -9,12 +9,18 @@ local_path_override(
     path = "../..",
 )
 
-# Expose the devshell "sed" binary to Bazel under the repo name "upcase",
-# mirroring downstream usage (name != binary_name). sed is a standalone binary;
-# multicall binaries like coreutils would break the argv[0]-based dispatch.
+# Expose the devshell "sed" binary under the repo name "upcase", mirroring
+# downstream usage (name != binary_name, so @upcase aliases the sed file).
 nix_tool = use_repo_rule("@flazel//bazel:nix_tool.bzl", "nix_tool")
 
 nix_tool(
     name = "upcase",
     binary_name = "sed",
+)
+
+# coreutils "tr" is a multicall binary (one executable dispatching on argv[0]).
+# Exposing it exercises the argv[0]-preservation fix.
+nix_tool(
+    name = "upper",
+    binary_name = "tr",
 )

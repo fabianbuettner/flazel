@@ -1,20 +1,16 @@
-"""Repository rule to expose Nix tools to Bazel.
+"""Repository rule to expose a Nix devshell tool to Bazel.
 
-Limitation: this works for standalone binaries (imagemagick, openssl, glslc,
-clang-tidy, ...). It does NOT work for multicall binaries such as nixpkgs'
-coreutils, where one executable dispatches on argv[0]: the rule symlinks the
-tool under the repository name and resolves it with `readlink -f`, both of
-which lose the applet name, so the binary runs as the wrong (or unknown)
-program. Expose such tools via their own single-applet package instead.
+The tool is symlinked and invoked under its binary name, so argv[0] is the
+applet name. That makes it work for standalone binaries (imagemagick, openssl,
+glslc, ...) AND for multicall binaries that dispatch on argv[0] (coreutils,
+busybox): e.g. nix_tool(name = "rev", binary_name = "tac") exposes coreutils'
+tac correctly. Reference it as @<repo> (shorthand, via an alias when the repo
+name differs from binary_name), @<repo>//:<binary_name>, or @<repo>//:bin (an
+executable target for executable= rule attrs and aspects).
 """
 
 def _nix_tool_impl(repository_ctx):
-    """Creates a repository with a symlink to a Nix tool.
-
-    The symlink is named after the repository, enabling shorthand references:
-        @magick instead of @magick//:magick
-        @openssl-bin instead of @openssl-bin//:openssl
-    """
+    """Creates a repository exposing a Nix tool under its binary name."""
 
     # Extract base repo name (strip bzlmod prefix like "_main~_repo_rules~")
     full_name = repository_ctx.name
@@ -28,23 +24,22 @@ def _nix_tool_impl(repository_ctx):
     if result.return_code == 0:
         tool_path = result.stdout.strip()
 
-        # Resolve the real binary path (follows all symlinks)
-        real_result = repository_ctx.execute(["readlink", "-f", tool_path])
-        real_path = real_result.stdout.strip() if real_result.return_code == 0 else tool_path
+        # Symlink under the binary (applet) name, not the repo name, so argv[0]
+        # is the applet name. Do NOT readlink -f: that would resolve a multicall
+        # applet symlink (e.g. tr) to its dispatcher (coreutils) and lose the
+        # name. `which` already returns an absolute store path whose basename is
+        # the applet.
+        repository_ctx.symlink(tool_path, binary_name)
 
-        # Symlink named after base repo name (so @repo shorthand works in genrules)
-        repository_ctx.symlink(tool_path, base_name)
-
-        # Wrapper script that invokes the tool by its resolved absolute path.
-        # We can't use sh_binary or native_binary because NixOS patches bash to
-        # create argv[0]-based launchers that break when Bazel renames binaries.
-        # /bin/sh (not /usr/bin/env bash): the body is POSIX, and a pure nix
-        # build sandbox provides /bin/sh but not /usr/bin/env, so this keeps the
-        # wrapper runnable in hermetic sandboxed actions. Matches the stub below.
+        # Wrapper execs the same applet-named path so @repo//:bin also keeps
+        # argv[0] correct. We can't use sh_binary/native_binary because NixOS
+        # patches bash to create argv[0]-based launchers that break when Bazel
+        # renames binaries. /bin/sh (not /usr/bin/env bash): the body is POSIX
+        # and a pure nix build sandbox provides /bin/sh but not /usr/bin/env.
         repository_ctx.file("wrapper.sh", """\
 #!/bin/sh
-exec {real_path} "$@"
-""".format(real_path = real_path), executable = True)
+exec {tool_path} "$@"
+""".format(tool_path = tool_path), executable = True)
     else:
         # Tool not in PATH — create stubs that fail at execution time with a
         # helpful message. This allows the build to succeed for targets that
@@ -56,7 +51,7 @@ echo "Make sure you're in a Nix devshell with the tool available:" >&2
 echo "  nix develop" >&2
 exit 1
 """.format(binary = binary_name)
-        repository_ctx.file(base_name, stub, executable = True)
+        repository_ctx.file(binary_name, stub, executable = True)
         repository_ctx.file("wrapper.sh", stub, executable = True)
 
     # A custom rule that provides an executable without NixOS wrapper issues.
@@ -78,21 +73,32 @@ nix_executable = rule(
 )
 ''')
 
+    # @repo shorthand resolves to @repo//:<base_name>; alias it to the
+    # binary-named file when they differ so the applet name (argv[0]) is kept.
+    alias_target = "" if base_name == binary_name else """\
+# @{base_name} shorthand -> the binary-named file (preserves argv[0]).
+alias(
+    name = "{base_name}",
+    actual = ":{binary_name}",
+)
+""".format(base_name = base_name, binary_name = binary_name)
+
     repository_ctx.file("BUILD.bazel", """\
 load(":nix_executable.bzl", "nix_executable")
 
 package(default_visibility = ["//visibility:public"])
 
-# Raw symlink for genrule $(location @repo) usage
-exports_files(["{name}"])
+# Raw symlink (named after the binary) for genrule $(location) usage.
+exports_files(["{binary_name}"])
 
-# Executable target backed by a wrapper script that execs the resolved
+{alias_target}
+# Executable target backed by a wrapper script that execs the applet-named
 # Nix store path. Works with executable=True rule attrs and aspects.
 nix_executable(
     name = "bin",
     src = "wrapper.sh",
 )
-""".format(name = base_name))
+""".format(binary_name = binary_name, alias_target = alias_target))
 
 nix_tool = repository_rule(
     implementation = _nix_tool_impl,

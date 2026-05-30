@@ -39,16 +39,23 @@
           # sed (standalone binary) must be on PATH for nix_tool's `which` to
           # resolve it inside the sandbox.
           nativeBuildInputs = [ pkgs.gnused ];
-          bazelCommand = "build //:via_symlink //:via_bin";
+          bazelCommand = "build //:via_symlink //:via_bin //:multicall_symlink //:multicall_bin";
           installPhase = ''
-            for target in via_symlink via_bin; do
-              got=$(cat "bazel-bin/$target.txt")
-              echo "$target -> $got"
-              [ "$got" = "flazel nix_tool OK" ] || {
-                echo "FAIL: $target produced \"$got\"" >&2
+            # Standalone tool (sed): s/ok/OK/. Multicall tool (coreutils tr):
+            # a-z A-Z uppercases the whole line, which only works if argv[0] is
+            # preserved as the applet name.
+            check() {
+              got=$(cat "bazel-bin/$1.txt")
+              echo "$1 -> $got"
+              [ "$got" = "$2" ] || {
+                echo "FAIL: $1 produced \"$got\"" >&2
                 exit 1
               }
-            done
+            }
+            check via_symlink "flazel nix_tool OK"
+            check via_bin "flazel nix_tool OK"
+            check multicall_symlink "FLAZEL NIX_TOOL OK"
+            check multicall_bin "FLAZEL NIX_TOOL OK"
             mkdir -p "$out"
             echo ok > "$out/result"
           '';
