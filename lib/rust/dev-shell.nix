@@ -72,7 +72,10 @@ let
           builtins.replaceStrings [ "-" ] [ "_" ] target
         }\n"
       ) toolchains.${name}.targets
-    ) toolchainNames;
+    ) toolchainNames
+    # Match the derivation: bootstrap process_wrapper via the hermetic sh_toolchain
+    # rather than #!/usr/bin/env bash, so builds work without /usr/bin/env.
+    + "build --@rules_rust//rust/settings:experimental_use_sh_toolchain_for_bootstrap_process_wrapper=True\n";
 
   toolchainInfo = pkgs.lib.concatStringsSep ", " (
     pkgs.lib.mapAttrsToList (name: cfg: "${name} (rust ${cfg.rustVersion})") toolchains

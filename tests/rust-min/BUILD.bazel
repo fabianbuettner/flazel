@@ -1,0 +1,11 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+# Minimal rust binary with no crate dependencies: exercises the Nix-provided
+# rustc plus the CC toolchain (linker) through flazel.lib.rust.mkDerivation,
+# without pulling in crate_universe (whose crate sources cannot be fetched in
+# the offline nix sandbox).
+rust_binary(
+    name = "hello",
+    srcs = ["src/main.rs"],
+    edition = "2021",
+)
