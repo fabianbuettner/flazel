@@ -42,7 +42,49 @@ let
     inherit extensions targets;
   };
 
-  execTriple = "x86_64-unknown-linux-gnu";
+  # Host (exec) triple and platform constraints, derived from the build
+  # platform rather than assuming x86_64-linux.
+  execTriple = pkgs.stdenv.buildPlatform.config;
+  execCpuConstraint = platform.cpuConstraint pkgs.stdenv.buildPlatform.parsed.cpu.name;
+  execOsConstraint = platform.osConstraint pkgs.stdenv.buildPlatform.parsed.kernel.name;
+
+  # Map a rust target triple to Bazel [cpu, os] constraints. Rust triples are
+  # irregular: "x86_64-unknown-linux-gnu" (arch-vendor-os-env), "aarch64-apple-ios"
+  # (arch-vendor-os), and bare-metal ones like "thumbv7em-none-eabi" or
+  # "riscv32imac-unknown-none-elf" where the system is the literal "none" and the
+  # arch is a fine-grained family name. So detect bare metal by the "none"
+  # component, and fold embedded arch families into a platform cpu.
+  rustTargetConstraints =
+    target:
+    let
+      components = pkgs.lib.splitString "-" target;
+      arch = builtins.head components;
+
+      cpu =
+        if pkgs.lib.hasPrefix "thumb" arch || pkgs.lib.hasPrefix "armv" arch || arch == "arm" then
+          "arm"
+        else if pkgs.lib.hasPrefix "riscv64" arch then
+          "riscv64"
+        else if pkgs.lib.hasPrefix "riscv32" arch then
+          "riscv32"
+        else if pkgs.lib.hasPrefix "mips64" arch then
+          "mips64"
+        else
+          arch; # x86_64, aarch64, ... pass straight through
+
+      # Non-bare-metal: keep the existing positional heuristic (3rd component is
+      # the OS), with the musl-without-vendor special case.
+      parts = builtins.match "([^-]+)-([^-]+)-([^-]+)(-.*)?" target;
+      positionalOs = if parts != null then builtins.elemAt parts 2 else "linux";
+      os =
+        if builtins.elem "none" components then
+          "none"
+        else if positionalOs == "unknown" && builtins.match ".*musl.*" target != null then
+          "linux"
+        else
+          positionalOs;
+    in
+    ''"${platform.cpuConstraint cpu}", "${platform.osConstraint os}"'';
 
   rustToolchainBuild = pkgs.writeText "BUILD.bazel" ''
     load("@rules_rust//rust:toolchain.bzl", "rust_toolchain", "rust_stdlib_filegroup")
@@ -123,16 +165,8 @@ let
 
           toolchain(
               name = "rust_toolchain_${sanitized}",
-              exec_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
-              target_compatible_with = [${
-                let
-                  parts = builtins.match "([^-]+)-([^-]+)-([^-]+)(-.*)?" target;
-                  cpu = builtins.elemAt parts 0;
-                  os = builtins.elemAt parts 2;
-                  resolvedOs = if os == "unknown" && builtins.match ".*musl.*" target != null then "linux" else os;
-                in
-                ''"${platform.cpuConstraint cpu}", "${platform.osConstraint resolvedOs}"''
-              }],
+              exec_compatible_with = ["${execCpuConstraint}", "${execOsConstraint}"],
+              target_compatible_with = [${rustTargetConstraints target}],
               toolchain = ":rust_toolchain_${sanitized}_impl",
               toolchain_type = "@rules_rust//rust:toolchain_type",
           )

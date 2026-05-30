@@ -206,6 +206,18 @@ let
   # Determine if we need the dynamic linker (only for non-static, non-baremetal Linux)
   needsDynamicLinker = !effectiveStatic && !isBaremetal && targetOs == "linux";
 
+  # Target dynamic linker, read from the cc-wrapper (so it is per-arch:
+  # ld-linux-x86-64.so.2, ld-linux-aarch64.so.1, ...) instead of hardcoded.
+  # Only forced for dynamic Linux targets, so static/baremetal never hit it.
+  dynamicLinker =
+    let
+      f = "${effectiveGcc}/nix-support/dynamic-linker";
+    in
+    if builtins.pathExists f then
+      pkgs.lib.removeSuffix "\n" (builtins.readFile f)
+    else
+      throw "flazel: ${effectiveGcc} has no nix-support/dynamic-linker; set target.linkFlags for this toolchain";
+
   # Deps repo name (parameterized by toolchain name)
   depsRepoName = "local_config_cc_${toolchainName}_deps";
 
@@ -239,7 +251,7 @@ let
         "-Wl,-rpath,${effectiveGcc.cc.lib or effectiveGcc.cc}/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
-        "-Wl,--dynamic-linker=${libc}/lib/ld-linux-x86-64.so.2",
+        "-Wl,--dynamic-linker=${dynamicLinker}",
         "-Bexternal/${depsRepoName}/binutils/bin",
         "-lstdc++",
         "-lm",
@@ -254,7 +266,7 @@ let
         "-Wl,-rpath,${effectiveGcc.cc.lib or effectiveGcc.cc}/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
-        "-Wl,--dynamic-linker=${libc}/lib/ld-linux-x86-64.so.2",
+        "-Wl,--dynamic-linker=${dynamicLinker}",
         "-Bexternal/${depsRepoName}/binutils/bin",
         "-lstdc++",
         "-lm",
@@ -296,6 +308,11 @@ let
   # Bazel platform constraints
   cpuConstraint = platform.cpuConstraint targetCpu;
   osConstraint = platform.osConstraint targetOs;
+
+  # Exec platform = the host that runs the compiler, derived from the build
+  # platform instead of assuming x86_64-linux.
+  execCpuConstraint = platform.cpuConstraint pkgs.stdenv.buildPlatform.parsed.cpu.name;
+  execOsConstraint = platform.osConstraint pkgs.stdenv.buildPlatform.parsed.kernel.name;
 
   # Generate Bazel repos for each nixpkgs library
   nixpkgsRepos = builtins.mapAttrs (
@@ -495,7 +512,7 @@ let
 
     toolchain(
         name = "cc_toolchain",
-        exec_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
+        exec_compatible_with = ["${execCpuConstraint}", "${execOsConstraint}"],
         target_compatible_with = ["${cpuConstraint}", "${osConstraint}"],
         toolchain = ":local_config_cc_toolchain",
         toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",

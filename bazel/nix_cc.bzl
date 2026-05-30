@@ -38,6 +38,7 @@ _CPU_CONSTRAINTS = {
     "aarch64": "@platforms//cpu:aarch64",
     "mips64": "@platforms//cpu:mips64",
     "arm": "@platforms//cpu:arm",
+    "riscv32": "@platforms//cpu:riscv32",
     "riscv64": "@platforms//cpu:riscv64",
 }
 
