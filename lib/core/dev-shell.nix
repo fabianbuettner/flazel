@@ -26,6 +26,7 @@
 }:
 let
   inherit (import ./derivation.nix) mkFlazelDepsSetup;
+  inherit (import ./constants.nix) nixDepsDir;
 in
 pkgs.mkShell {
   packages = [
@@ -44,7 +45,7 @@ pkgs.mkShell {
         ;
       extraSetup = extraDepsSetup;
     }}
-    echo "Created .nix-bazel-deps"
+    echo "Created ${nixDepsDir}"
     echo ""
     echo "Ready! Run: bazel build //..."
     ${shellHook}

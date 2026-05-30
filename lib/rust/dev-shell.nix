@@ -23,6 +23,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
+  inherit (import ../core/constants.nix) nixDepsDir toolchainMarker;
 
   toolchainList = pkgs.lib.attrValues toolchains;
   toolchainNames = pkgs.lib.attrNames toolchains;
@@ -31,28 +32,28 @@ let
   primaryCfg = builtins.head toolchainList;
 
   rustDepsSetup = ''
-    mkdir -p .nix-bazel-deps/toolchains .nix-bazel-deps/libs
+    mkdir -p ${nixDepsDir}/toolchains ${nixDepsDir}/libs
 
     # Symlink each Rust toolchain (creates toolchains/<name>/rust/)
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
-        mkdir -p .nix-bazel-deps/toolchains/${name}
-        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/rust .nix-bazel-deps/toolchains/${name}/rust
+        mkdir -p ${nixDepsDir}/toolchains/${name}
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/rust ${nixDepsDir}/toolchains/${name}/rust
       '') toolchains
     )}
 
     # Symlink each CC toolchain (creates toolchains/<name>/cc/ and deps/)
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
-        mkdir -p .nix-bazel-deps/toolchains/${name}
-        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/cc .nix-bazel-deps/toolchains/${name}/cc
-        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps .nix-bazel-deps/toolchains/${name}/deps
+        mkdir -p ${nixDepsDir}/toolchains/${name}
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/cc ${nixDepsDir}/toolchains/${name}/cc
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
       '') ccToolchains
     )}
 
     echo "${
       pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))
-    }" >> .nix-bazel-deps/.toolchain-marker
+    }" >> ${nixDepsDir}/${toolchainMarker}
 
     ${pkgs.lib.optionalString (cargoBazel != null) ''
       export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"

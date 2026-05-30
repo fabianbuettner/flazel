@@ -28,6 +28,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
+  inherit (import ../core/constants.nix) nixDepsDir toolchainMarker;
 
   # Get list of toolchain configs
   toolchainList = pkgs.lib.attrValues toolchains;
@@ -39,12 +40,12 @@ let
 
   # CC-specific setup: symlink toolchains and libs
   ccDepsSetup = ''
-    mkdir -p .nix-bazel-deps/toolchains .nix-bazel-deps/libs
+    mkdir -p ${nixDepsDir}/toolchains ${nixDepsDir}/libs
 
     # Symlink each toolchain
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
-        ln -s ${cfg.bazelNixDeps}/toolchains/${name} .nix-bazel-deps/toolchains/${name}
+        ln -s ${cfg.bazelNixDeps}/toolchains/${name} ${nixDepsDir}/toolchains/${name}
       '') toolchains
     )}
 
@@ -55,14 +56,14 @@ let
         for lib in ${cfg.bazelNixDeps}/libs/*; do
           libname=$(basename "$lib")
           # Use -f to allow later toolchains to override (e.g., default wins for unsuffixed)
-          ln -sfn "$lib" ".nix-bazel-deps/libs/$libname"
+          ln -sfn "$lib" "${nixDepsDir}/libs/$libname"
         done
       '') toolchains
     )}
 
     # Write marker file with available toolchains (forces module extension re-evaluation)
     # The nix_cc module extension reads this file to detect when toolchains change
-    echo "${pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan toolchainNames)}" > .nix-bazel-deps/.toolchain-marker
+    echo "${pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan toolchainNames)}" > ${nixDepsDir}/${toolchainMarker}
   '';
 
   ccToolchainLines = pkgs.lib.concatMapStrings (

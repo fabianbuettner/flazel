@@ -14,6 +14,9 @@
 #     installPhase = "cp -rL bazel-bin/* $out/";
 #   };
 #
+let
+  inherit (import ./constants.nix) nixDepsDir;
+in
 rec {
   # Generate .bazelrc.nix lines for flazel module override and non-BCR deps
   mkBazelrcFooter =
@@ -68,17 +71,17 @@ rec {
       });
     in
     ''
-      # Create .nix-bazel-deps with writable caches
-      rm -rf .nix-bazel-deps
-      mkdir -p .nix-bazel-deps
-      cp -rL ${caches.bazelRepoCache} .nix-bazel-deps/repo-cache
-      cp -rL ${caches.bazelRegistryCache} .nix-bazel-deps/registry
-      chmod -R u+w .nix-bazel-deps/repo-cache .nix-bazel-deps/registry
+      # Create the deps dir with writable caches
+      rm -rf ${nixDepsDir}
+      mkdir -p ${nixDepsDir}
+      cp -rL ${caches.bazelRepoCache} ${nixDepsDir}/repo-cache
+      cp -rL ${caches.bazelRegistryCache} ${nixDepsDir}/registry
+      chmod -R u+w ${nixDepsDir}/repo-cache ${nixDepsDir}/registry
 
       # Framework bazelrc (override + non-BCR + toolchains). The build appends
       # the offline cache flags after this; the dev shell leaves it as-is.
-      cp ${bazelrc} .nix-bazel-deps/.bazelrc.nix
-      chmod u+w .nix-bazel-deps/.bazelrc.nix
+      cp ${bazelrc} ${nixDepsDir}/.bazelrc.nix
+      chmod u+w ${nixDepsDir}/.bazelrc.nix
       ${extraSetup}
     '';
 
@@ -135,8 +138,8 @@ rec {
         # the sandbox-absolute path, so they are appended here, not in the shared
         # bazelrc content. --noenable_workspace lives in mkBazelrcContent so the
         # dev shell gets it too.
-        echo "build --registry=file://$(pwd)/.nix-bazel-deps/registry" >> .nix-bazel-deps/.bazelrc.nix
-        echo "build --repository_cache=$(pwd)/.nix-bazel-deps/repo-cache" >> .nix-bazel-deps/.bazelrc.nix
+        echo "build --registry=file://$(pwd)/${nixDepsDir}/registry" >> ${nixDepsDir}/.bazelrc.nix
+        echo "build --repository_cache=$(pwd)/${nixDepsDir}/repo-cache" >> ${nixDepsDir}/.bazelrc.nix
         bazel --output_user_root=${bazelOutputBase} ${bazelCommand}
       '';
     };

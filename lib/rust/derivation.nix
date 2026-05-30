@@ -31,19 +31,20 @@
 }:
 let
   coreDeriv = import ../core/derivation.nix;
+  inherit (import ../core/constants.nix) nixDepsDir toolchainMarker;
 
   ccToolchainNames = pkgs.lib.attrNames ccToolchains;
 
   rustDepsSetup = ''
-    mkdir -p .nix-bazel-deps/toolchains/${cfg.toolchainName}
-    ln -sfn ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName}/rust .nix-bazel-deps/toolchains/${cfg.toolchainName}/rust
+    mkdir -p ${nixDepsDir}/toolchains/${cfg.toolchainName}
+    ln -sfn ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName}/rust ${nixDepsDir}/toolchains/${cfg.toolchainName}/rust
 
     # Symlink each CC toolchain (provides the linker) alongside the rust one.
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: ccCfg: ''
-        mkdir -p .nix-bazel-deps/toolchains/${name}
-        ln -sfn ${ccCfg.bazelNixDeps}/toolchains/${name}/cc .nix-bazel-deps/toolchains/${name}/cc
-        ln -sfn ${ccCfg.bazelNixDeps}/toolchains/${name}/deps .nix-bazel-deps/toolchains/${name}/deps
+        mkdir -p ${nixDepsDir}/toolchains/${name}
+        ln -sfn ${ccCfg.bazelNixDeps}/toolchains/${name}/cc ${nixDepsDir}/toolchains/${name}/cc
+        ln -sfn ${ccCfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
       '') ccToolchains
     )}
 
@@ -51,7 +52,7 @@ let
       pkgs.lib.concatStringsSep "," (
         pkgs.lib.unique (builtins.sort builtins.lessThan ([ cfg.toolchainName ] ++ ccToolchainNames))
       )
-    }" > .nix-bazel-deps/.toolchain-marker
+    }" > ${nixDepsDir}/${toolchainMarker}
 
     ${pkgs.lib.optionalString (cargoBazel != null) ''
       export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
