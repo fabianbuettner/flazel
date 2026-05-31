@@ -4,7 +4,11 @@ Shared helpers for repository rules and module extensions that interface
 with .nix-bazel-deps/.
 """
 
+# These two are the single source of truth for the deps-dir layout. The Nix
+# half (lib/core/constants.nix) reads them out of this file, so keep each on its
+# own line in the form `NAME = "value"`.
 NIX_DEPS_DIR = ".nix-bazel-deps"
+TOOLCHAIN_MARKER = ".toolchain-marker"
 
 def path_exists(ctx, path):
     """Check if a file/path exists (works with both repository_ctx and module_ctx)."""
@@ -82,7 +86,7 @@ def init_extension(module_ctx):
     nix_deps = resolve_path(module_ctx)
     if not dir_exists(module_ctx, nix_deps):
         fail("Nix dependencies not found at {}. Run 'nix develop' first.".format(nix_deps))
-    marker_path = nix_deps + "/.toolchain-marker"
+    marker_path = nix_deps + "/" + TOOLCHAIN_MARKER
     if path_exists(module_ctx, marker_path):
         module_ctx.read(marker_path)
     return nix_deps
