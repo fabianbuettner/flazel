@@ -13,6 +13,8 @@
 #       { name = "foo"; type = "module"; url = "..."; hash = "..."; stripPrefix = "..."; }
 #       { name = "bar"; type = "repo"; url = "..."; hash = "..."; stripPrefix = "..."; buildFile = ./bar.BUILD; }
 #     ];
+#     # Offline downloads the lock cannot express (e.g. aspect_bazel_lib's bats toolchain):
+#     extraArchives = [ { url = "..."; sha256 = "..."; } ];
 #   };
 #   # caches.bazelRepoCache - content-addressable archive cache (BCR modules)
 #   # caches.bazelRegistryCache - BCR registry metadata cache
@@ -35,6 +37,7 @@
       pkgs,
       lockFile,
       nonBcrDeps ? [ ],
+      extraArchives ? [ ],
     }:
     let
       parseSourceUrl =
@@ -222,6 +225,15 @@
           map (
             a: ''add_to_cache "${fetchExtensionArchive a}" "${toHex a.sha256}" "${urlHash a.url}"''
           ) extensionArchives
+        )}
+
+        # Caller-supplied { url, sha256 } archives for offline downloads the lock
+        # does not expose: e.g. aspect_bazel_lib's bats toolchain, which calls
+        # download_and_extract on a hardcoded URL (no generatedRepoSpec to discover).
+        ${builtins.concatStringsSep "\n" (
+          map (
+            a: ''add_to_cache "${fetchExtensionArchive a}" "${toHex a.sha256}" "${urlHash a.url}"''
+          ) extraArchives
         )}
       '';
 
