@@ -7,4 +7,7 @@ module(
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.1.4")
-bazel_dep(name = "rules_rust", version = "0.56.0")
+# dev_dependency: only flazel's own rust tests need rules_rust. Consumers that use
+# flazel's rust support (nix_rust.bzl) declare their own bazel_dep, so C++-only
+# consumers do not inherit rules_rust (and the BCR registry/repo caches it needs).
+bazel_dep(name = "rules_rust", version = "0.56.0", dev_dependency = True)
