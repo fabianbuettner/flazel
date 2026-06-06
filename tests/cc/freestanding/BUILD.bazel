@@ -1,0 +1,11 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+cc_binary(
+    name = "freestanding",
+    srcs = ["freestanding.c"],
+    # No libc, so the libc-dependent hardening must come off: the stack-protector
+    # canary calls __stack_chk_fail / reads __stack_chk_guard, which a -nostdlib
+    # link cannot resolve. (fortify_source is gated on -c opt, so fastbuild here
+    # never enables it.) See the flazel README "freestanding" note.
+    features = ["-stack_protector_strong"],
+)

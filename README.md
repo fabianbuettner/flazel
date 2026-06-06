@@ -306,7 +306,13 @@ Bazel `--features=` flags wired to compiler/linker options.
 | `tsan` | `-fsanitize=thread` | `provides=["sanitizer"]` |
 | `thin_lto` | `-flto=thin` / `-flto=auto` | |
 | `hidden_visibility` | `-fvisibility=hidden` | |
+| `freestanding` | `-ffreestanding` | usually set via `target.freestanding = true` |
 | `template_diagnostics` | `-fdiagnostics-show-template-tree` | Clang only |
+
+`freestanding` is the compile-side counterpart to bare metal's `-nostdlib` link
+posture (`libc = null`): set `target.freestanding = true`. A no-libc build also
+wants `--features=-stack_protector_strong` and no `-c opt` (its `fortify_source`),
+since both emit calls to libc symbols a freestanding link cannot resolve.
 
 ### Usage
 

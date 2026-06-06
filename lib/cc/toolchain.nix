@@ -36,9 +36,14 @@
 #       # triples mkSystemFromString cannot parse, like this 3-component one.
 #       cpu = "mips64";
 #       os = "none";
-#       libc = null;  # bare metal - static is auto-inferred
+#       libc = null;          # bare metal (link side): -nostdlib, static auto-inferred
+#       freestanding = true;  # compile side: -ffreestanding (__STDC_HOSTED__ == 0)
 #     };
 #   };
+#
+# A no-libc build also wants the libc-dependent hardening off:
+#   --features=-stack_protector_strong (and avoid -c opt, whose fortify_source
+#   pulls libc __*_chk symbols). They emit calls a freestanding link cannot resolve.
 #
 {
   pkgs,
@@ -190,6 +195,10 @@ let
   libc = effectiveTarget.libc or null;
   libcDev = if libc != null then libc.dev else null;
   libcName = effectiveTarget.libcName or (if libc == null then "none" else "unknown");
+
+  # -ffreestanding (compile side). Opt-in and orthogonal to libc = null (link
+  # side): bare metal typically wants both, but they are set independently.
+  freestanding = effectiveTarget.freestanding or false;
 
   # Extract fortify-headers path from GCC wrapper's libc-cflags if it exists
   # The GCC wrapper injects -isystem paths that include fortify-headers
@@ -473,6 +482,7 @@ let
         link_flags = [${linkFlags}],
         cxx_standard = "${cxxStandard}",
         c_standard = "${cStandard}",
+        freestanding = ${if freestanding then "True" else "False"},
         is_clang = ${if isClang then "True" else "False"},
         lto_flag = "${if isClang then "-flto=thin" else "-flto=auto"}",
     )

@@ -94,6 +94,18 @@ def _impl(ctx):
             )],
         ),
         feature(
+            # -ffreestanding asserts a freestanding environment (no hosted libc
+            # semantics, program entry need not be main, __STDC_HOSTED__ == 0).
+            # Compile-side counterpart to the bare-metal -nostdlib link posture;
+            # driven by target.freestanding, not normally toggled per build.
+            name = "freestanding",
+            enabled = ctx.attr.freestanding,
+            flag_sets = [flag_set(
+                actions = _COMPILE_ACTIONS,
+                flag_groups = [flag_group(flags = ["-ffreestanding"])],
+            )],
+        ),
+        feature(
             name = "cxx_flags",
             enabled = True,
             flag_sets = [flag_set(
@@ -379,6 +391,7 @@ cc_toolchain_config = rule(
         "compile_isystem_flags": attr.string_list(mandatory = True),
         "compiler": attr.string(mandatory = True),
         "cxx_standard": attr.string(mandatory = True),
+        "freestanding": attr.bool(mandatory = True),
         "is_clang": attr.bool(mandatory = True),
         "link_flags": attr.string_list(mandatory = True),
         "lto_flag": attr.string(mandatory = True),
