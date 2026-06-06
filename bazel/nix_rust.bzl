@@ -11,61 +11,66 @@ Usage in MODULE.bazel:
     use_repo(nix_rust, "local_config_rust_default")
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "init_extension", "path_exists", "resolve_path", "symlink_if_exists")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "init_extension", "repo_source", "resolve_path", "symlink_if_exists")
+
+def _write_rust_stub(repository_ctx, name):
+    """Writes a stub repo for an absent Rust toolchain (a bare, empty package)."""
+    repository_ctx.file("BUILD.bazel", """
+# Stub Rust toolchain '{name}' - not available in current environment
+# Run 'nix develop' to set up the Rust toolchain
+package(default_visibility = ["//visibility:public"])
+""".format(name = name))
 
 def _nix_rust_repo_impl(repository_ctx):
-    """Creates a Rust toolchain repository by symlinking to a Nix store path."""
-    path = resolve_path(repository_ctx, repository_ctx.attr.path)
+    """Creates a Rust toolchain repository.
 
-    build_file = path + "/BUILD.bazel"
-    if not path_exists(repository_ctx, build_file):
-        fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
-    repository_ctx.symlink(build_file, "BUILD.bazel")
+    Symlinks the Nix store path when the toolchain is present, or writes a stub
+    when it is absent. The real-vs-stub decision is made here, at fetch time,
+    NOT in the module extension at eval time, so the extension's generated repo
+    specs stay a pure function of the declared toolchains and MODULE.bazel.lock
+    is portable across environments. An absent toolchain is only ever fetched
+    if a target actually selects it.
+    """
+    name = repository_ctx.attr.toolchain_name
+    path, present = repo_source(repository_ctx)
+    if not present:
+        _write_rust_stub(repository_ctx, name)
+        return
+    repository_ctx.symlink(path + "/BUILD.bazel", "BUILD.bazel")
 
     symlink_if_exists(repository_ctx, path + "/bin", "bin")
     symlink_if_exists(repository_ctx, path + "/lib", "lib")
 
 _nix_rust_repo = repository_rule(
     implementation = _nix_rust_repo_impl,
-    attrs = {"path": attr.string(mandatory = True)},
-    local = True,
-)
-
-def _stub_rust_repo_impl(repository_ctx):
-    """Creates a stub repository for unavailable Rust toolchains."""
-    name = repository_ctx.attr.toolchain_name
-    repository_ctx.file("BUILD.bazel", """
-# Stub Rust toolchain '{name}' - not available in current shell
-# Run 'nix develop' to set up the Rust toolchain
-package(default_visibility = ["//visibility:public"])
-""".format(name = name))
-
-_stub_rust_repo = repository_rule(
-    implementation = _stub_rust_repo_impl,
-    attrs = {"toolchain_name": attr.string(mandatory = True)},
+    attrs = {
+        "path": attr.string(mandatory = True),
+        "toolchain_name": attr.string(mandatory = True),
+    },
     local = True,
 )
 
 def _nix_rust_extension_impl(module_ctx):
-    """Module extension that creates Rust toolchain repositories."""
-    nix_deps = init_extension(module_ctx)
+    """Module extension that creates Rust toolchain repositories.
+
+    Repo specs are a pure function of the declared toolchains: no filesystem
+    probing here. Each repo rule decides real-vs-stub at fetch time, keeping
+    MODULE.bazel.lock portable across environments.
+    """
+    init_extension(module_ctx)
 
     requested_toolchains = []
     for mod in module_ctx.modules:
         for tag in mod.tags.toolchain:
             requested_toolchains.append(tag.name)
 
-    toolchains_dir = nix_deps + "/toolchains"
     toolchains_dir_rel = NIX_DEPS_DIR + "/toolchains"
-
     for name in requested_toolchains:
-        rust_path = toolchains_dir + "/" + name + "/rust"
-        rust_path_rel = toolchains_dir_rel + "/" + name + "/rust"
-
-        if dir_exists(module_ctx, rust_path):
-            _nix_rust_repo(name = "local_config_rust_" + name, path = rust_path_rel)
-        else:
-            _stub_rust_repo(name = "local_config_rust_" + name, toolchain_name = name)
+        _nix_rust_repo(
+            name = "local_config_rust_" + name,
+            path = toolchains_dir_rel + "/" + name + "/rust",
+            toolchain_name = name,
+        )
 
 _toolchain_tag = tag_class(
     attrs = {

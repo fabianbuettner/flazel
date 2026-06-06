@@ -30,7 +30,7 @@ Libraries are accessed as @libjpeg//:libjpeg - the correct architecture
 is automatically selected based on --platforms.
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "host_constraints", "init_extension", "path_exists", "resolve_path", "symlink_if_exists")
+load(":nix_common.bzl", "NIX_DEPS_DIR", "host_constraints", "init_extension", "path_exists", "repo_source", "resolve_path", "symlink_if_exists")
 
 # Keep in sync with lib/core/platform.nix
 _CPU_CONSTRAINTS = {
@@ -55,62 +55,15 @@ _OS_CONSTRAINTS = {
 # Toolchain repository rules
 # =============================================================================
 
-def _nix_cc_repo_impl(repository_ctx):
-    """Creates a CC toolchain repository by symlinking to a Nix store path."""
-    path = resolve_path(repository_ctx, repository_ctx.attr.path)
+def _write_cc_stub(repository_ctx, name):
+    """Writes a valid-but-non-functional CC toolchain repo for an absent toolchain.
 
-    build_file = path + "/BUILD.bazel"
-    if not path_exists(repository_ctx, build_file):
-        fail("BUILD.bazel file not found at {}. Path: {}".format(build_file, path))
-    repository_ctx.symlink(build_file, "BUILD.bazel")
-
-    config_file = path + "/cc_toolchain_config.bzl"
-    if not path_exists(repository_ctx, config_file):
-        fail("cc_toolchain_config.bzl not found at {}".format(config_file))
-    repository_ctx.symlink(config_file, "cc_toolchain_config.bzl")
-
-    symlink_if_exists(repository_ctx, path + "/bin", "bin")
-
-_nix_cc_repo = repository_rule(
-    implementation = _nix_cc_repo_impl,
-    attrs = {"path": attr.string(mandatory = True)},
-    local = True,
-)
-
-def _nix_cc_deps_repo_impl(repository_ctx):
-    """Creates the toolchain deps repository.
-
-    Mirrors every entry the Nix derivation placed in the deps directory
-    (BUILD.bazel plus gcc, gcc-lib, clang-lib, libc, libc-dev, binutils as
-    applicable). Enumerating rather than hardcoding the dep names keeps this
-    in lockstep with localConfigCcDeps in lib/cc/toolchain.nix: a hardcoded
-    list silently dropped clang-lib, leaving Clang toolchains with a dangling
-    -isystem path.
+    Used when a declared toolchain is not present in the current environment.
+    The repo still resolves (so `use_repo` and label references do not fail),
+    but selecting its toolchain or evaluating its config fails loudly.
     """
-    path = resolve_path(repository_ctx, repository_ctx.attr.path)
-
-    build_file = path + "/BUILD.bazel"
-    if not path_exists(repository_ctx, build_file):
-        fail("BUILD.bazel not found at {}. Run 'nix develop' first.".format(build_file))
-
-    result = repository_ctx.execute(["ls", "-1", path])
-    if result.return_code != 0:
-        fail("Cannot list toolchain deps at {}: {}".format(path, result.stderr))
-    for entry in result.stdout.splitlines():
-        if entry:
-            repository_ctx.symlink(path + "/" + entry, entry)
-
-_nix_cc_deps_repo = repository_rule(
-    implementation = _nix_cc_deps_repo_impl,
-    attrs = {"path": attr.string(mandatory = True)},
-    local = True,
-)
-
-def _stub_cc_repo_impl(repository_ctx):
-    """Creates a stub repository for unavailable toolchains."""
-    name = repository_ctx.attr.toolchain_name
     repository_ctx.file("BUILD.bazel", """
-# Stub toolchain '{name}' - not available in current shell
+# Stub toolchain '{name}' - not available in current environment
 # Use 'nix develop .#multi' for cross-compilation support
 package(default_visibility = ["//visibility:public"])
 
@@ -127,18 +80,80 @@ def cc_toolchain_config(**kwargs):
     fail("Toolchain '{name}' not available. Use 'nix develop .#multi' for cross-compilation.")
 """.format(name = name))
 
-_stub_cc_repo = repository_rule(
-    implementation = _stub_cc_repo_impl,
-    attrs = {"toolchain_name": attr.string(mandatory = True)},
+def _nix_cc_repo_impl(repository_ctx):
+    """Creates a CC toolchain repository.
+
+    Symlinks the Nix store path when the toolchain is present in this
+    environment, or writes a stub when it is absent. The real-vs-stub decision
+    is made here, at fetch time, NOT in the module extension at eval time, so
+    the extension's generated repo specs stay a pure function of the declared
+    toolchains and MODULE.bazel.lock is portable across environments. An absent
+    toolchain is only ever fetched if a target actually selects it, so the stub
+    is a safety net rather than a path the common build hits.
+    """
+    name = repository_ctx.attr.toolchain_name
+    path, present = repo_source(repository_ctx)
+    if not present:
+        _write_cc_stub(repository_ctx, name)
+        return
+    repository_ctx.symlink(path + "/BUILD.bazel", "BUILD.bazel")
+
+    config_file = path + "/cc_toolchain_config.bzl"
+    if not path_exists(repository_ctx, config_file):
+        fail("cc_toolchain_config.bzl not found at {} (toolchain dir present but malformed)".format(config_file))
+    repository_ctx.symlink(config_file, "cc_toolchain_config.bzl")
+
+    symlink_if_exists(repository_ctx, path + "/bin", "bin")
+
+_nix_cc_repo = repository_rule(
+    implementation = _nix_cc_repo_impl,
+    attrs = {
+        "path": attr.string(mandatory = True),
+        "toolchain_name": attr.string(mandatory = True),
+    },
     local = True,
 )
 
-def _stub_cc_deps_repo_impl(repository_ctx):
-    """Creates a stub deps repository for unavailable toolchains."""
+def _write_empty_cc_deps(repository_ctx):
+    """Writes an empty toolchain-deps repo (a `:all` filegroup with no srcs)."""
     repository_ctx.file("BUILD.bazel", """
 package(default_visibility = ["//visibility:public"])
 filegroup(name = "all", srcs = [])
 """)
+
+def _nix_cc_deps_repo_impl(repository_ctx):
+    """Creates the toolchain deps repository.
+
+    Mirrors every entry the Nix derivation placed in the deps directory
+    (BUILD.bazel plus gcc, gcc-lib, clang-lib, libc, libc-dev, binutils as
+    applicable). Enumerating rather than hardcoding the dep names keeps this
+    in lockstep with localConfigCcDeps in lib/cc/toolchain.nix: a hardcoded
+    list silently dropped clang-lib, leaving Clang toolchains with a dangling
+    -isystem path.
+    """
+    path, present = repo_source(repository_ctx)
+    if not present:
+        # Deps absent in this environment (toolchain stubbed) — emit an empty
+        # deps repo so references resolve. Portable: same spec everywhere.
+        _write_empty_cc_deps(repository_ctx)
+        return
+
+    result = repository_ctx.execute(["ls", "-1", path])
+    if result.return_code != 0:
+        fail("Cannot list toolchain deps at {}: {}".format(path, result.stderr))
+    for entry in result.stdout.splitlines():
+        if entry:
+            repository_ctx.symlink(path + "/" + entry, entry)
+
+_nix_cc_deps_repo = repository_rule(
+    implementation = _nix_cc_deps_repo_impl,
+    attrs = {"path": attr.string(mandatory = True)},
+    local = True,
+)
+
+def _stub_cc_deps_repo_impl(repository_ctx):
+    """Creates a stub deps repository, paired with _stub_cc_cross_repo."""
+    _write_empty_cc_deps(repository_ctx)
 
 _stub_cc_deps_repo = repository_rule(
     implementation = _stub_cc_deps_repo_impl,
@@ -149,7 +164,7 @@ _stub_cc_deps_repo = repository_rule(
 def _stub_cc_cross_repo_impl(repository_ctx):
     """Creates a minimal CC toolchain for cross-compilation targets that lack a real compiler.
 
-    Unlike _stub_cc_repo (which fails at config time for unavailable Nix toolchains),
+    Unlike the absent-toolchain stub (_write_cc_stub, whose config fails if used),
     this produces a valid but non-functional toolchain that passes Bazel's toolchain
     resolution. Useful when Rust targets require a CC toolchain for a platform you
     never actually compile C/C++ for.
@@ -246,21 +261,38 @@ _stub_cc_cross_repo = repository_rule(
 # =============================================================================
 
 def _nix_lib_repo_impl(repository_ctx):
-    """Creates a repository for a nixpkgs library."""
-    path = resolve_path(repository_ctx, repository_ctx.attr.path)
+    """Creates a repository for a nixpkgs library.
 
-    build_file = path + "/BUILD.bazel"
-    if not path_exists(repository_ctx, build_file):
-        fail("BUILD.bazel not found at '{}' (relative path: '{}')".format(build_file, repository_ctx.attr.path))
-    repository_ctx.symlink(build_file, "BUILD.bazel")
+    Tries the toolchain-suffixed path first, then the unsuffixed fallback (a
+    toolchain that shares the default arch's libs has no suffixed dir). The
+    path selection happens here, at fetch time, so the extension emits one
+    portable spec regardless of which dirs exist in a given environment. A
+    library provided by neither path fails here, when it is actually fetched
+    (i.e. linked), not at extension eval time.
+    """
+    for candidate in [repository_ctx.attr.path, repository_ctx.attr.fallback_path]:
+        path = resolve_path(repository_ctx, candidate)
+        build_file = path + "/BUILD.bazel"
+        if path_exists(repository_ctx, build_file):
+            repository_ctx.symlink(build_file, "BUILD.bazel")
+            symlink_if_exists(repository_ctx, path + "/MODULE.bazel", "MODULE.bazel")
+            symlink_if_exists(repository_ctx, path + "/include", "include")
+            symlink_if_exists(repository_ctx, path + "/lib", "lib")
+            return
 
-    symlink_if_exists(repository_ctx, path + "/MODULE.bazel", "MODULE.bazel")
-    symlink_if_exists(repository_ctx, path + "/include", "include")
-    symlink_if_exists(repository_ctx, path + "/lib", "lib")
+    fail("Library '{}' not found at '{}' or fallback '{}' in this environment.".format(
+        repository_ctx.attr.lib_name,
+        repository_ctx.attr.path,
+        repository_ctx.attr.fallback_path,
+    ))
 
 _nix_lib_repo = repository_rule(
     implementation = _nix_lib_repo_impl,
-    attrs = {"path": attr.string(mandatory = True)},
+    attrs = {
+        "path": attr.string(mandatory = True),
+        "fallback_path": attr.string(mandatory = True),
+        "lib_name": attr.string(mandatory = True),
+    },
     local = True,
 )
 
@@ -314,8 +346,15 @@ _nix_lib_alias_repo = repository_rule(
 # =============================================================================
 
 def _nix_cc_extension_impl(module_ctx):
-    """Module extension that creates CC toolchain and library repositories."""
-    nix_deps = init_extension(module_ctx)
+    """Module extension that creates CC toolchain and library repositories.
+
+    Repo specs are a pure function of the declared toolchains and packages: no
+    filesystem probing happens here. Each repo rule decides real-vs-stub (for
+    toolchains) or suffixed-vs-fallback (for libs) at fetch time, which keeps
+    MODULE.bazel.lock portable across environments that set up different
+    toolchain subsets.
+    """
+    init_extension(module_ctx)
 
     # Collect requested toolchains and packages from tags
     requested_toolchains = []
@@ -331,58 +370,32 @@ def _nix_cc_extension_impl(module_ctx):
     if "default" in requested_toolchains:
         default_toolchain = "default"
 
-    # Track which toolchains actually exist
-    available_toolchains = []
-
-    # Create repos for each requested toolchain
-    # Use absolute paths for existence checks, relative paths for repo attrs (lockfile portability)
-    toolchains_dir = nix_deps + "/toolchains"
+    # Create repos for each requested toolchain. Relative paths only (lockfile
+    # portability); the repo rule resolves and stubs at fetch time.
     toolchains_dir_rel = NIX_DEPS_DIR + "/toolchains"
     for name in requested_toolchains:
-        cc_path = toolchains_dir + "/" + name + "/cc"
-        cc_path_rel = toolchains_dir_rel + "/" + name + "/cc"
-        deps_path = toolchains_dir + "/" + name + "/deps"
-        deps_path_rel = toolchains_dir_rel + "/" + name + "/deps"
-
-        # Check if toolchain exists
-        if dir_exists(module_ctx, cc_path):
-            # Real toolchain exists - create real repos
-            available_toolchains.append(name)
-            _nix_cc_repo(name = "local_config_cc_" + name, path = cc_path_rel)
-
-            if dir_exists(module_ctx, deps_path):
-                _nix_cc_deps_repo(name = "local_config_cc_" + name + "_deps", path = deps_path_rel)
-            else:
-                _stub_cc_deps_repo(name = "local_config_cc_" + name + "_deps")
-        else:
-            # Toolchain not available - create stubs
-            _stub_cc_repo(name = "local_config_cc_" + name, toolchain_name = name)
-            _stub_cc_deps_repo(name = "local_config_cc_" + name + "_deps")
+        _nix_cc_repo(
+            name = "local_config_cc_" + name,
+            path = toolchains_dir_rel + "/" + name + "/cc",
+            toolchain_name = name,
+        )
+        _nix_cc_deps_repo(
+            name = "local_config_cc_" + name + "_deps",
+            path = toolchains_dir_rel + "/" + name + "/deps",
+        )
 
     # Create repos for each requested package
-    libs_dir = nix_deps + "/libs"
     libs_dir_rel = NIX_DEPS_DIR + "/libs"
     for lib_name in requested_packages:
-        # Create per-toolchain library repos (suffixed)
+        # Per-toolchain library repos: suffixed path, with the unsuffixed dir as
+        # the fetch-time fallback (resolved inside _nix_lib_repo).
         for tc in requested_toolchains:
-            suffixed_name = lib_name + "_" + tc
-            lib_path = libs_dir + "/" + suffixed_name
-            lib_path_rel = libs_dir_rel + "/" + suffixed_name
-
-            if dir_exists(module_ctx, lib_path):
-                _nix_lib_repo(name = suffixed_name, path = lib_path_rel)
-            else:
-                # Fallback to unsuffixed if suffixed doesn't exist
-                unsuffixed_path = libs_dir + "/" + lib_name
-                unsuffixed_path_rel = libs_dir_rel + "/" + lib_name
-                if dir_exists(module_ctx, unsuffixed_path):
-                    _nix_lib_repo(name = suffixed_name, path = unsuffixed_path_rel)
-                else:
-                    fail("Library '{}' not found for toolchain '{}' in {}".format(
-                        lib_name,
-                        tc,
-                        libs_dir,
-                    ))
+            _nix_lib_repo(
+                name = lib_name + "_" + tc,
+                path = libs_dir_rel + "/" + lib_name + "_" + tc,
+                fallback_path = libs_dir_rel + "/" + lib_name,
+                lib_name = lib_name,
+            )
 
         # Create alias repo that selects based on platform
         _nix_lib_alias_repo(

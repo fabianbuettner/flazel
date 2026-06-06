@@ -2,23 +2,32 @@
 #
 # Provides functions to:
 # - Prefetch and cache BCR module dependencies from MODULE.bazel.lock
-# - Extract and override non-BCR dependencies (archive_override, http_archive)
-#   via --override_module / --override_repository in .bazelrc.nix
+# - Override non-BCR Bazel *modules* (bazel_dep with no registry entry) via
+#   --override_module in .bazelrc.nix
+# - Seed the offline repo cache with archives the lock cannot express
+#   (extraArchives), keyed by sha256
 #
 # Usage:
 #   caches = flazel.lib.mkBcrCaches {
 #     inherit pkgs;
 #     lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+#     # Bazel *modules* with no BCR registry entry (bazel_dep name has no version):
 #     nonBcrDeps = [
-#       { name = "foo"; type = "module"; url = "..."; hash = "..."; stripPrefix = "..."; }
-#       { name = "bar"; type = "repo"; url = "..."; hash = "..."; stripPrefix = "..."; buildFile = ./bar.BUILD; }
+#       { name = "foo"; url = "..."; hash = "..."; stripPrefix = "..."; }
 #     ];
-#     # Offline downloads the lock cannot express (e.g. aspect_bazel_lib's bats toolchain):
+#     # Archives the lock cannot express, seeded into the repo cache by sha256:
+#     #   - root-module use_repo_rule http_archive/http_file deps (declare them in
+#     #     MODULE.bazel with their integrity; list the same url+sha256 here so the
+#     #     archive resolves offline). This is the canonical way to make a
+#     #     use_repo_rule repo offline; --override_repository does NOT work for
+#     #     them (it cannot match the `_main~_repo_rules~<name>` canonical name).
+#     #   - globally registered toolchains fetched via download_and_extract on a
+#     #     hardcoded URL (e.g. aspect_bazel_lib's bats, rules_python interpreters).
 #     extraArchives = [ { url = "..."; sha256 = "..."; } ];
 #   };
-#   # caches.bazelRepoCache - content-addressable archive cache (BCR modules)
-#   # caches.bazelRegistryCache - BCR registry metadata cache
-#   # caches.nonBcrOverrideFlags - .bazelrc.nix lines for --override_module/--override_repository
+#   # caches.bazelRepoCache - content-addressable archive cache (BCR + extraArchives)
+#   # caches.bazelRegistryCache - BCR registry metadata + overlay cache
+#   # caches.nonBcrOverrideFlags - .bazelrc.nix --override_module lines
 #
 {
   # Parse a MODULE.bazel.lock file safely
@@ -76,6 +85,12 @@
           archiveUrl = sourceInfo.url;
           archiveIntegrity = sourceInfo.integrity;
           patches = sourceInfo.patches or { };
+          # BCR "overlay" files (a BUILD.bazel/MODULE.bazel the registry layers
+          # onto upstream sources that ship no Bazel build, e.g. zlib-ng). Served
+          # at <baseUrl>/overlay/<file>; fetched at repo-fetch time, so absent
+          # from registryFileHashes and invisible to the offline build unless
+          # cached explicitly below.
+          overlay = sourceInfo.overlay or { };
         };
 
       modulesWithSources = map fetchSourceJson modules;
@@ -127,17 +142,25 @@
           hash = mod.archiveIntegrity;
         };
 
-      fetchModulePatches =
-        mod:
+      # Fetch a module's BCR `patches` or `overlay` files (subdir = "patches" or
+      # "overlay"). source.json lists each as { filename = integrity }, served at
+      # <baseUrl>/<subdir>/<filename>: patches are diffs applied to the upstream
+      # source; overlay files (e.g. a BUILD.bazel) are layered onto sources that
+      # ship no Bazel build. Returns { filename = store-path }.
+      fetchModuleFiles =
+        subdir: mod:
         builtins.mapAttrs (
           name: hash:
           pkgs.fetchurl {
-            url = "${mod.baseUrl}/patches/${name}";
+            url = "${mod.baseUrl}/${subdir}/${name}";
             inherit hash name;
           }
-        ) mod.patches;
+        ) mod.${subdir};
 
-      # Extract a non-BCR dep archive into a ready-to-use directory
+      # Extract a non-BCR module archive into a ready-to-use directory. These are
+      # Bazel modules (they carry their own MODULE.bazel + BUILD files), so no
+      # BUILD injection is needed. Non-module repos (use_repo_rule http_archive)
+      # are handled by extraArchives, not here: see the module header.
       mkExtractedDep =
         dep:
         pkgs.stdenv.mkDerivation {
@@ -151,26 +174,12 @@
             "unpackPhase"
             "installPhase"
           ];
-          installPhase = ''
-            cp -r . $out
-            ${if dep ? buildFile then "cp ${dep.buildFile} $out/BUILD.bazel" else ""}
-          '';
+          installPhase = "cp -r . $out";
         };
 
-      # Generate .bazelrc.nix override lines for non-BCR deps
+      # Generate .bazelrc.nix --override_module lines for non-BCR modules.
       nonBcrOverrideFlags = builtins.concatStringsSep "\n" (
-        map (
-          dep:
-          let
-            extracted = mkExtractedDep dep;
-            flag =
-              if dep.type == "module" then
-                "--override_module=${dep.name}=${extracted}"
-              else
-                "--override_repository=${dep.name}=${extracted}";
-          in
-          "build ${flag}"
-        ) nonBcrDeps
+        map (dep: "build --override_module=${dep.name}=${mkExtractedDep dep}") nonBcrDeps
       );
 
       # Bazel keys its content-addressable cache by the hex sha256 of the archive
@@ -204,7 +213,7 @@
             mod:
             let
               archive = fetchModuleArchive mod;
-              patches = fetchModulePatches mod;
+              patches = fetchModuleFiles "patches" mod;
             in
             ''
               add_to_cache "${archive}" "${toHex mod.archiveIntegrity}" "${urlHash mod.archiveUrl}"
@@ -260,6 +269,27 @@
             ''
           ) registryFiles
         )}
+
+        # Overlay files (modules/<name>/<version>/overlay/<file>) are referenced
+        # by source.json but fetched lazily at repo-fetch time, so they never
+        # appear in registryFileHashes. Without them the offline build cannot
+        # construct overlaid repos (e.g. @zlib-ng~ fails: overlay/BUILD.bazel
+        # not found). Cache them from each module's source.json overlay map.
+        ${builtins.concatStringsSep "\n" (
+          map (
+            mod:
+            builtins.concatStringsSep "\n" (
+              builtins.attrValues (
+                builtins.mapAttrs (name: file: ''
+                  mkdir -p "$out/modules/${mod.name}/${mod.version}/overlay/$(dirname "${name}")"
+                  cp ${file} "$out/modules/${mod.name}/${mod.version}/overlay/${name}"
+                  chmod 644 "$out/modules/${mod.name}/${mod.version}/overlay/${name}"
+                '') (fetchModuleFiles "overlay" mod)
+              )
+            )
+          ) modulesWithSources
+        )}
+
         find $out -type d -exec chmod 755 {} \;
       '';
     in

@@ -337,13 +337,14 @@ Then `bazel test --config=asan //...` and done.
 
 ## Non-BCR dependencies
 
-Declared once in `flake.nix`:
+### Bazel modules with no registry entry (`nonBcrDeps`)
+
+For a `bazel_dep` whose module has no BCR entry, declare it in `flake.nix`:
 
 ```nix
 nonBcrDeps = [
   {
     name = "my_module";
-    type = "module";
     url = "https://github.com/org/repo/archive/v1.0.tar.gz";
     hash = "sha256-...";
     stripPrefix = "repo-1.0";
@@ -351,7 +352,28 @@ nonBcrDeps = [
 ];
 ```
 
-flazel fetches, extracts, and writes `--override_module` / `--override_repository` flags to `.bazelrc.nix`. No duplication with MODULE.bazel.
+flazel fetches and extracts the archive and writes an `--override_module` flag to
+`.bazelrc.nix`.
+
+### Repositories and offline archives (`extraArchives`)
+
+A non-module **repository** — anything declared in `MODULE.bazel` with
+`use_repo_rule` (`http_archive`, `http_file`) — is not a `nonBcrDeps` entry.
+`--override_repository` cannot redirect it: a `use_repo_rule` repo's canonical
+name is `_main~_repo_rules~<name>`, which the flag does not match. Declare the
+repo in `MODULE.bazel` the normal way (with its `integrity`/`build_file`), and
+make it resolve offline by seeding its archive into the repo cache, keyed by the
+same sha256:
+
+```nix
+extraArchives = [
+  { url = "https://github.com/org/data/archive/v1.tar.gz"; sha256 = "sha256-..."; }
+];
+```
+
+`extraArchives` also covers archives the lock cannot express at all — globally
+registered toolchains Bazel fetches via `download_and_extract` on a hardcoded URL
+(e.g. aspect_bazel_lib's bats, the rules_python interpreter).
 
 ## Reproducible releases
 

@@ -6,8 +6,8 @@
 # - include/ directory with headers
 # - lib/ directory with static or dynamic libraries
 #
-# For static builds, transitive dependencies are bundled.
-# For dynamic builds, libraries are symlinked directly.
+# For static builds, the package and its transitive static closure are merged
+# into a single archive. For dynamic builds, libraries are symlinked directly.
 #
 # Usage:
 #   repo = flazel.lib.mkNixpkgsRepo {
@@ -25,17 +25,22 @@
   getTransitiveDeps ? (import ../core/utils.nix pkgs),
 }:
 let
+  # Where a package keeps its libraries: the `lib` output when it splits one out
+  # (e.g. brotli), otherwise `out`. Resolving `out` alone dropped split-output
+  # libs from the static closure.
+  archiveOutput = p: p.lib or p.out or p;
+
   devPkg = pkg.dev or pkg;
-  libPkg = pkg.out or pkg;
+  libPkg = archiveOutput pkg;
 
   # Header glob shared by every generated cc_library (dynamic, header-only, static)
   hdrsGlob = ''glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True)'';
 
-  # Check if a package is a library (has lib/*.a files)
+  # Check if a package is a library (has a lib/ with archives).
   isLibrary =
     dep:
     let
-      depLib = dep.out or dep;
+      depLib = archiveOutput dep;
     in
     builtins.pathExists "${depLib}/lib"
     && (dep.pname or dep.name or "") != ""
@@ -62,27 +67,40 @@ let
     )
   '';
 
-  # Shell commands to copy static library files
-  copyStaticLibs = ''
+  # Path (relative to $out) of the single merged archive produced for a static
+  # library repo.
+  mergedArchive = "lib/lib${name}.a";
+
+  # Merge the package's own archive(s) and its whole transitive static closure
+  # into ONE archive. A single archive is order-independent at link time: the
+  # linker resolves references between its members regardless of member order,
+  # so no cc_import ordering, link grouping, or --start-group is needed, and the
+  # generated BUILD carries just one cc_import. `ar -M` (addlib) merges archives
+  # member-wise and preserves duplicate member names, unlike extract+rearchive
+  # which would clobber same-named objects. Cross-repo duplicate objects (a lib
+  # bundled into several repos) stay harmless: without alwayslink the linker
+  # pulls each on demand and the first definition wins.
+  mergeStaticLibs = ''
     mkdir -p $out/lib
-    # Copy main package .a files
-    if [ -d "${libPkg}/lib" ]; then
-      cp -L "${libPkg}"/lib/*.a $out/lib/ 2>/dev/null || true
+    archives=
+    collect() {
+      local libdir="$1"
+      [ -d "$libdir" ] || return 0
+      for a in "$libdir"/*.a; do
+        [ -e "$a" ] && archives="$archives $a"
+      done
+    }
+    collect "${libPkg}/lib"
+    ${builtins.concatStringsSep "\n" (map (dep: ''collect "${archiveOutput dep}/lib"'') transitiveDeps)}
+    if [ -n "$archives" ]; then
+      {
+        echo "create $out/${mergedArchive}"
+        for a in $archives; do echo "addlib $a"; done
+        echo "save"
+        echo "end"
+      } | ar -M
+      ranlib "$out/${mergedArchive}"
     fi
-    # Copy transitive dep .a files
-    ${builtins.concatStringsSep "\n" (
-      map (
-        dep:
-        let
-          depLib = dep.out or dep;
-        in
-        ''
-          if [ -d "${depLib}/lib" ]; then
-            cp -L "${depLib}"/lib/*.a $out/lib/ 2>/dev/null || true
-          fi
-        ''
-      ) transitiveDeps
-    )}
   '';
 
   # Shell commands to link dynamic library directory
@@ -94,14 +112,31 @@ let
     fi
   '';
 
-  # Shell script to generate BUILD.bazel with cc_import rules
-  # This runs at build time so we can discover actual .a filenames
+  # Generate BUILD.bazel for a static repo. One merged archive (when present)
+  # becomes one cc_import wrapped in the cc_library; a header-only package (no
+  # archives) is just the cc_library with its includes.
   generateStaticBuild = ''
-    # Check if there are any .a files
-    a_files=$(find "$out/lib" -maxdepth 1 -name '*.a' -type f 2>/dev/null || true)
+    if [ -e "$out/${mergedArchive}" ]; then
+      cat > $out/BUILD.bazel <<'STATICEOF'
+    load("@rules_cc//cc:cc_library.bzl", "cc_library")
+    load("@rules_cc//cc:cc_import.bzl", "cc_import")
 
-    if [ -z "$a_files" ]; then
-      # Header-only library - just use cc_library
+    package(default_visibility = ["//visibility:public"])
+
+    cc_import(
+        name = "${name}_archive",
+        static_library = "${mergedArchive}",
+    )
+
+    cc_library(
+        name = "${name}",
+        hdrs = ${hdrsGlob},
+        includes = ["include"],
+        deps = [":${name}_archive"],
+    )
+    STATICEOF
+    else
+      # Header-only library - just a cc_library with includes.
       cat > $out/BUILD.bazel <<'HEADERONLY'
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
@@ -113,83 +148,52 @@ let
         includes = ["include"],
     )
     HEADERONLY
-    else
-      # Has static libraries: emit a cc_import per .a (single pass over
-      # $a_files) plus a cc_library depending on them. Target order within a
-      # BUILD file is irrelevant to Bazel, so the library comes last.
-      cat > $out/BUILD.bazel <<HEADEREOF
-    load("@rules_cc//cc:cc_library.bzl", "cc_library")
-    load("@rules_cc//cc:cc_import.bzl", "cc_import")
-
-    package(default_visibility = ["//visibility:public"])
-    HEADEREOF
-
-      # Use -lib suffix to avoid name conflicts with the cc_library.
-      dep_imports=""
-      for lib in $a_files; do
-        [ -f "$lib" ] || continue
-        libfile=$(basename "$lib")
-        # Convert libfoo.a -> foo-lib (strip lib prefix and .a suffix, add -lib)
-        dep_name=$(echo "$libfile" | sed 's/^lib//; s/\.a$//')
-        dep_imports="$dep_imports\":$dep_name-lib\", "
-        cat >> $out/BUILD.bazel <<DEPEOF
-
-    cc_import(
-        name = "$dep_name-lib",
-        static_library = "lib/$libfile",
-    )
-    DEPEOF
-      done
-
-      cat >> $out/BUILD.bazel <<LIBEOF
-
-    cc_library(
-        name = "${name}",
-        hdrs = ${hdrsGlob},
-        includes = ["include"],
-        deps = [$dep_imports],
-    )
-    LIBEOF
     fi
   '';
 in
-pkgs.runCommand "nixpkgs-${name}" { } ''
-  mkdir -p $out
-
-  cat > $out/MODULE.bazel <<EOF
-  module(name = "${name}")
-  EOF
-
-  mkdir -p $out/include
-  if [ -d "${devPkg}/include" ]; then
-    cp -rL "${devPkg}/include"/* $out/include/ 2>/dev/null || true
-    # Flatten versioned subdirectories (e.g., openjpeg-2.5/)
-    # Only flatten dirs that match a version pattern (contain hyphen + digit)
-    for subdir in $out/include/*/; do
-      if [ -d "$subdir" ]; then
-        dirname=$(basename "$subdir")
-        # Only flatten if dirname contains version pattern like -2.5 or -1.0
-        if echo "$dirname" | grep -qE '.*-[0-9]+\.'; then
-          cp -rL "$subdir"* $out/include/ 2>/dev/null || true
-        fi
-      fi
-    done
-  fi
-
-  ${
-    if static then
-      ''
-        # Static: copy .a files first, then generate BUILD.bazel dynamically
-        ${copyStaticLibs}
-        ${generateStaticBuild}
-      ''
-    else
-      ''
-        # Dynamic: generate BUILD.bazel directly
-        cat > $out/BUILD.bazel <<'DYNEOF'
-        ${dynamicBuildContent}
-        DYNEOF
-        ${linkDynamicLibs}
-      ''
+pkgs.runCommand "nixpkgs-${name}"
+  {
+    # ar/ranlib to merge the static archive (build-time host tools; the archive
+    # format is arch-independent, so host binutils handles musl/cross archives).
+    nativeBuildInputs = pkgs.lib.optionals static [ pkgs.binutils ];
   }
-''
+  ''
+    mkdir -p $out
+
+    cat > $out/MODULE.bazel <<EOF
+    module(name = "${name}")
+    EOF
+
+    mkdir -p $out/include
+    if [ -d "${devPkg}/include" ]; then
+      cp -rL "${devPkg}/include"/* $out/include/ 2>/dev/null || true
+      # Flatten versioned subdirectories (e.g., openjpeg-2.5/)
+      # Only flatten dirs that match a version pattern (contain hyphen + digit)
+      for subdir in $out/include/*/; do
+        if [ -d "$subdir" ]; then
+          dirname=$(basename "$subdir")
+          # Only flatten if dirname contains version pattern like -2.5 or -1.0
+          if echo "$dirname" | grep -qE '.*-[0-9]+\.'; then
+            cp -rL "$subdir"* $out/include/ 2>/dev/null || true
+          fi
+        fi
+      done
+    fi
+
+    ${
+      if static then
+        ''
+          # Static: merge the archive closure into one .a, then generate BUILD.bazel.
+          ${mergeStaticLibs}
+          ${generateStaticBuild}
+        ''
+      else
+        ''
+          # Dynamic: generate BUILD.bazel directly
+          cat > $out/BUILD.bazel <<'DYNEOF'
+          ${dynamicBuildContent}
+          DYNEOF
+          ${linkDynamicLibs}
+        ''
+    }
+  ''

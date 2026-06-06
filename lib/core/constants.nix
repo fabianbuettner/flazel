@@ -24,9 +24,4 @@ in
   # Directory (relative to the workspace root) where flazel materializes Bazel's
   # Nix-provided toolchains, libs, caches, and generated .bazelrc.nix.
   nixDepsDir = extract "NIX_DEPS_DIR";
-
-  # Marker file inside nixDepsDir whose contents list the active toolchains. The
-  # nix_cc / nix_rust repository rules read it to force re-evaluation when the
-  # toolchain set changes.
-  toolchainMarker = extract "TOOLCHAIN_MARKER";
 }

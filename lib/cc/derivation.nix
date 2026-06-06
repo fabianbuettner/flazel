@@ -29,7 +29,7 @@
 }:
 let
   coreDeriv = import ../core/derivation.nix;
-  inherit (import ../core/constants.nix) nixDepsDir toolchainMarker;
+  inherit (import ../core/constants.nix) nixDepsDir;
 
   # CC-specific setup: symlink toolchain and libs
   # Uses new directory structure: toolchains/<name>/cc, toolchains/<name>/deps
@@ -37,9 +37,6 @@ let
     mkdir -p ${nixDepsDir}/toolchains
     ln -s ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} ${nixDepsDir}/toolchains/${cfg.toolchainName}
     ln -s ${cfg.bazelNixDeps}/libs ${nixDepsDir}/libs
-
-    # Write marker file (must match dev-shell.nix for lockfile consistency)
-    echo "${cfg.toolchainName}" > ${nixDepsDir}/${toolchainMarker}
   '';
 in
 coreDeriv.mkFlazelDerivation {

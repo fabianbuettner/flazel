@@ -28,7 +28,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
-  inherit (import ../core/constants.nix) nixDepsDir toolchainMarker;
+  inherit (import ../core/constants.nix) nixDepsDir;
 
   # Get list of toolchain configs
   toolchainList = pkgs.lib.attrValues toolchains;
@@ -60,10 +60,6 @@ let
         done
       '') toolchains
     )}
-
-    # Write marker file with available toolchains (forces module extension re-evaluation)
-    # The nix_cc module extension reads this file to detect when toolchains change
-    echo "${pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan toolchainNames)}" > ${nixDepsDir}/${toolchainMarker}
   '';
 
   ccToolchainLines = pkgs.lib.concatMapStrings (

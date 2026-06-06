@@ -4,21 +4,28 @@ Shared helpers for repository rules and module extensions that interface
 with .nix-bazel-deps/.
 """
 
-# These two are the single source of truth for the deps-dir layout. The Nix
-# half (lib/core/constants.nix) reads them out of this file, so keep each on its
-# own line in the form `NAME = "value"`.
+# Single source of truth for the deps-dir layout. The Nix half
+# (lib/core/constants.nix) reads it out of this file, so keep it on its own
+# line in the form `NAME = "value"`.
 NIX_DEPS_DIR = ".nix-bazel-deps"
-TOOLCHAIN_MARKER = ".toolchain-marker"
 
 def path_exists(ctx, path):
-    """Check if a file/path exists (works with both repository_ctx and module_ctx)."""
-    result = ctx.execute(["test", "-e", path])
-    return result.return_code == 0
+    """Check if a file/path exists (works with both repository_ctx and module_ctx).
+
+    Bazel-native (ctx.path(...).exists) rather than shelling out to `test`: a
+    subprocess inherits the ambient execution environment (PATH, signal
+    dispositions, the systemd-service sandbox), which under a forgejo DynamicUser
+    CI runner made this check spuriously report a present toolchain as absent and
+    stub it. The native query runs no subprocess, so it has no such dependence.
+    """
+    return ctx.path(path).exists
 
 def dir_exists(ctx, path):
-    """Check if a directory exists (works with both repository_ctx and module_ctx)."""
-    result = ctx.execute(["test", "-d", path])
-    return result.return_code == 0
+    """Check if a directory exists (works with both repository_ctx and module_ctx).
+
+    Native ctx.path(...).is_dir for the same reason as path_exists above.
+    """
+    return ctx.path(path).is_dir
 
 def host_constraints(ctx):
     """Best-effort @platforms cpu/os constraints for the host running the build.
@@ -71,11 +78,30 @@ def resolve_path(ctx, relative_path = NIX_DEPS_DIR):
     workspace_root = ctx.path(Label("@@//:MODULE.bazel")).dirname  # buildifier: disable=canonical-repository
     return str(workspace_root) + "/" + relative_path
 
+def repo_source(repository_ctx):
+    """Common preamble for the Nix toolchain/deps repository rules.
+
+    Resolves the repo's Nix source dir (from its `path` attr) and reports whether
+    it is present, using the BUILD.bazel as the presence marker. When absent the
+    repo rule writes a stub instead of symlinking (see nix_cc.bzl / nix_rust.bzl),
+    which is what keeps the generated repo specs portable across environments.
+
+    Returns:
+      A (path, present) tuple: the absolute source dir and whether it exists.
+    """
+    path = resolve_path(repository_ctx, repository_ctx.attr.path)
+    return path, path_exists(repository_ctx, path + "/BUILD.bazel")
+
 def init_extension(module_ctx):
     """Common preamble for Nix module extensions.
 
-    Checks that .nix-bazel-deps exists and reads the marker file to force
-    re-evaluation when the toolchain set changes.
+    Checks that .nix-bazel-deps exists. Does NOT read any machine-local state
+    into the extension: the extensions emit repo specs that are a pure function
+    of the declared toolchains/packages, and each repo rule decides real-vs-stub
+    at fetch time (see nix_cc.bzl / nix_rust.bzl). That keeps MODULE.bazel.lock
+    portable across environments that set up different toolchain subsets (e.g. a
+    single-toolchain `nix build` vs a multi-toolchain dev shell), so no marker
+    file is needed to force re-evaluation.
 
     Args:
       module_ctx: the module extension context.
@@ -86,7 +112,4 @@ def init_extension(module_ctx):
     nix_deps = resolve_path(module_ctx)
     if not dir_exists(module_ctx, nix_deps):
         fail("Nix dependencies not found at {}. Run 'nix develop' first.".format(nix_deps))
-    marker_path = nix_deps + "/" + TOOLCHAIN_MARKER
-    if path_exists(module_ctx, marker_path):
-        module_ctx.read(marker_path)
     return nix_deps

@@ -23,7 +23,7 @@
 }:
 let
   coreDevShell = import ../core/dev-shell.nix;
-  inherit (import ../core/constants.nix) nixDepsDir toolchainMarker;
+  inherit (import ../core/constants.nix) nixDepsDir;
 
   toolchainList = pkgs.lib.attrValues toolchains;
   toolchainNames = pkgs.lib.attrNames toolchains;
@@ -50,10 +50,6 @@ let
         ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
       '') ccToolchains
     )}
-
-    echo "${
-      pkgs.lib.concatStringsSep "," (builtins.sort builtins.lessThan (toolchainNames ++ ccToolchainNames))
-    }" >> ${nixDepsDir}/${toolchainMarker}
 
     ${pkgs.lib.optionalString (cargoBazel != null) ''
       export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
