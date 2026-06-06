@@ -6,9 +6,18 @@ provides rustc, cargo, clippy, rustfmt, and rust-std. Pre-built binaries
 from rules_rust do not run on NixOS.
 
 Usage in MODULE.bazel:
+    bazel_dep(name = "rules_rust", version = "0.56.0")
+
     nix_rust = use_extension("@flazel//bazel:nix_rust.bzl", "nix_rust")
     nix_rust.toolchain(name = "default")
     use_repo(nix_rust, "local_config_rust_default")
+    inject_repo(nix_rust, "rules_rust")
+
+The inject_repo line is required: the generated toolchain repo loads
+@rules_rust, but flazel deliberately has no rules_rust dep (C++-only consumers
+must not inherit it), so the consumer hands its own rules_rust to the
+extension. Without it, analysis fails with "No repository visible as
+'@rules_rust'".
 """
 
 load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "init_extension", "repo_source", "resolve_path", "symlink_if_exists")

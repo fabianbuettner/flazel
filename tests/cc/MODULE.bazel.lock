@@ -108,7 +108,7 @@
     },
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "VDuG1lpuZapnObVliU55VlsenbRST0P38drR3g4n88k=",
+        "bzlTransitiveDigest": "pJqAJhyAX7/Bsx8BihlCYddDm/RuXuSyGBhGVH4+elw=",
         "usagesDigest": "VspbYECZyCWg7ope0wrDvFjXjV2sN5Bt72b4Kf0CGLI=",
         "recordedFileInputs": {
           "@@//MODULE.bazel": "0a074d1b9ad14b5d51aaa86993fc2222874e22aa7a78b53ce4ca6be50b689a1e"

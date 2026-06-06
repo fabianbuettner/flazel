@@ -120,11 +120,10 @@
     },
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "z4kkBECmeGpgZSwDyFfu7bIXyoCtvLKbK0EQS7TkA+8=",
+        "bzlTransitiveDigest": "pJqAJhyAX7/Bsx8BihlCYddDm/RuXuSyGBhGVH4+elw=",
         "usagesDigest": "QpcpA30G1lv5ge+PINLNsO59igzIYLcvp/A5fIpxp7E=",
         "recordedFileInputs": {
-          "@@//.nix-bazel-deps/.toolchain-marker": "a8c85f83b4932daa61f7ef43965d33cf7fe68cb47d5462c68832a48842e5f98c",
-          "@@//MODULE.bazel": "6f263045985fe818ff4d8cf4dc8fa79e42dd4b1f9ab309d91f4fc56be9e76d03"
+          "@@//MODULE.bazel": "5be6b81236fb85c47930cbe72f63dbbf9f41962b041d891e7d94cf21a1c76c00"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -133,7 +132,8 @@
             "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
             "ruleClassName": "_nix_cc_repo",
             "attributes": {
-              "path": ".nix-bazel-deps/toolchains/default/cc"
+              "path": ".nix-bazel-deps/toolchains/default/cc",
+              "toolchain_name": "default"
             }
           },
           "local_config_cc_default_deps": {
@@ -149,11 +149,10 @@
     },
     "@@flazel~//bazel:nix_rust.bzl%nix_rust": {
       "general": {
-        "bzlTransitiveDigest": "rEyqA+cDhkiIQHiR5rpzNNg4B7PklZq0WN3H8mEFpZY=",
-        "usagesDigest": "NDjdzKXhP/kzYr9+5zBtLE+NcZSdnOaxQZqvEghgsP4=",
+        "bzlTransitiveDigest": "vFtmcI8rlVP8k129hGWlJLBBCO9+sJwTVkpgJzee8BM=",
+        "usagesDigest": "j1DPoEQX92LO+39RS0ORiwxHa4gTmE/YJBHKs66szTw=",
         "recordedFileInputs": {
-          "@@//.nix-bazel-deps/.toolchain-marker": "a8c85f83b4932daa61f7ef43965d33cf7fe68cb47d5462c68832a48842e5f98c",
-          "@@//MODULE.bazel": "6f263045985fe818ff4d8cf4dc8fa79e42dd4b1f9ab309d91f4fc56be9e76d03"
+          "@@//MODULE.bazel": "5be6b81236fb85c47930cbe72f63dbbf9f41962b041d891e7d94cf21a1c76c00"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -162,7 +161,8 @@
             "bzlFile": "@@flazel~//bazel:nix_rust.bzl",
             "ruleClassName": "_nix_rust_repo",
             "attributes": {
-              "path": ".nix-bazel-deps/toolchains/default/rust"
+              "path": ".nix-bazel-deps/toolchains/default/rust",
+              "toolchain_name": "default"
             }
           }
         },

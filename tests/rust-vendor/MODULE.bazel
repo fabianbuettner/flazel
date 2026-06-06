@@ -22,10 +22,14 @@ use_repo(
     "local_config_cc_default_deps",
 )
 
-# Rust toolchain (Nix-provided rustc).
+# Rust toolchain (Nix-provided rustc). The generated toolchain repo loads
+# @rules_rust, which flazel itself does not depend on (C++-only consumers must
+# stay rules_rust-free); inject this module's rules_rust into the extension.
 nix_rust = use_extension("@flazel//bazel:nix_rust.bzl", "nix_rust")
 nix_rust.toolchain(name = "default")
 use_repo(nix_rust, "local_config_rust_default")
+
+inject_repo(nix_rust, "rules_rust")
 
 register_toolchains("@local_config_rust_default//:all")
 

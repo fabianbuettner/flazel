@@ -136,6 +136,11 @@ nix_rust.toolchain(name = "default")
 use_repo(nix_rust, "local_config_rust_default")
 register_toolchains("@local_config_rust_default//:all")
 
+# Required: the generated toolchain repo loads @rules_rust, but flazel has no
+# rules_rust dep of its own (C++-only consumers must not inherit it). Hand the
+# consumer's rules_rust to the extension.
+inject_repo(nix_rust, "rules_rust")
+
 # crate_universe needs a host rustc to splice Cargo metadata. rules_rust
 # downloads one that segfaults on NixOS, so override it with the Nix toolchain.
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
