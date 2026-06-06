@@ -41,7 +41,7 @@ def _nix_tool_impl(repository_ctx):
 exec {tool_path} "$@"
 """.format(tool_path = tool_path), executable = True)
     else:
-        # Tool not in PATH — create stubs that fail at execution time with a
+        # Tool not in PATH: create stubs that fail at execution time with a
         # helpful message. This allows the build to succeed for targets that
         # don't transitively depend on this tool.
         stub = """\

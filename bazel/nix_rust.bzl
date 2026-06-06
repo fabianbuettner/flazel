@@ -2,7 +2,7 @@
 
 This extension creates Rust toolchain repositories from .nix-bazel-deps/,
 which is set up by `nix develop` or during `nix build`. The Nix store
-provides rustc, cargo, clippy, rustfmt, and rust-std — pre-built binaries
+provides rustc, cargo, clippy, rustfmt, and rust-std. Pre-built binaries
 from rules_rust do not run on NixOS.
 
 Usage in MODULE.bazel:

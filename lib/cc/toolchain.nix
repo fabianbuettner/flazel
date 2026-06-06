@@ -121,7 +121,7 @@ let
   # then override the compiler to use the new bintools. This works WITH the Nix
   # wrapper model: collect2 finds ld.mold via PATH, no -B hacks needed.
   #
-  # bfd and gold are already in standard binutils — no override needed.
+  # bfd and gold are already in standard binutils, so no override needed.
   # lld needs a symlink for GCC toolchains (Clang toolchains already have it).
   # mold always needs a symlink (external package).
   linkerBintoolsOverride =
@@ -405,7 +405,7 @@ let
       ''
   );
 
-  # Builtin include directories — Clang needs both its own resource headers
+  # Builtin include directories: Clang needs both its own resource headers
   # and GCC's libstdc++ headers (Clang on NixOS uses libstdc++, not libc++)
   builtinIncludeDirs =
     if isClang then
@@ -424,7 +424,7 @@ let
                   "${effectiveGcc.cc}/${targetTriple}/include",
         ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}'';
 
-  # Sandbox -isystem flags — within Bazel's sandbox, headers are accessed
+  # Sandbox -isystem flags: within Bazel's sandbox, headers are accessed
   # through the deps repo symlinks, not direct Nix store paths
   compileIsystemFlags =
     if isClang then

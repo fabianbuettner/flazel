@@ -357,8 +357,8 @@ flazel fetches and extracts the archive and writes an `--override_module` flag t
 
 ### Repositories and offline archives (`extraArchives`)
 
-A non-module **repository** — anything declared in `MODULE.bazel` with
-`use_repo_rule` (`http_archive`, `http_file`) — is not a `nonBcrDeps` entry.
+A non-module **repository** (anything declared in `MODULE.bazel` via
+`use_repo_rule`: `http_archive`, `http_file`) is not a `nonBcrDeps` entry.
 `--override_repository` cannot redirect it: a `use_repo_rule` repo's canonical
 name is `_main~_repo_rules~<name>`, which the flag does not match. Declare the
 repo in `MODULE.bazel` the normal way (with its `integrity`/`build_file`), and
@@ -371,7 +371,7 @@ extraArchives = [
 ];
 ```
 
-`extraArchives` also covers archives the lock cannot express at all — globally
+`extraArchives` also covers archives the lock cannot express at all: globally
 registered toolchains Bazel fetches via `download_and_extract` on a hardcoded URL
 (e.g. aspect_bazel_lib's bats, the rules_python interpreter).
 

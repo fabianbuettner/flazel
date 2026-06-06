@@ -133,7 +133,7 @@ def _nix_cc_deps_repo_impl(repository_ctx):
     """
     path, present = repo_source(repository_ctx)
     if not present:
-        # Deps absent in this environment (toolchain stubbed) — emit an empty
+        # Deps absent in this environment (toolchain stubbed): emit an empty
         # deps repo so references resolve. Portable: same spec everywhere.
         _write_empty_cc_deps(repository_ctx)
         return
