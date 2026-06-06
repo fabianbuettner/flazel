@@ -36,7 +36,10 @@
 
         rustCfg = flazel.lib.rust.mkConfig {
           inherit pkgs;
-          rustVersion = "1.85.0";
+          # >= 1.95 deliberately: std ships stub rlibs + separate .rmeta there,
+          # so this test covers the toolchain's .rmeta glob (the other rust
+          # tests stay on 1.85 to keep covering the embedded-metadata layout).
+          rustVersion = "1.95.0";
         };
 
         caches = flazel.lib.mkBcrCaches {

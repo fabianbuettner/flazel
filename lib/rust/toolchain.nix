@@ -177,7 +177,10 @@ let
         ''
           rust_stdlib_filegroup(
               name = "rust_std_${sanitized}",
-              srcs = glob(["lib/rustlib/${target}/lib/*.rlib", "lib/rustlib/${target}/lib/*.a", "lib/rustlib/${target}/lib/*.so", "lib/rustlib/${target}/lib/*.dylib"]),
+              # *.rmeta: rust >= 1.95 ships std rlibs as metadata stubs with the
+              # full metadata in sibling .rmeta files; without them rustc fails
+              # with "only metadata stub found for rlib dependency std".
+              srcs = glob(["lib/rustlib/${target}/lib/*.rlib", "lib/rustlib/${target}/lib/*.rmeta", "lib/rustlib/${target}/lib/*.a", "lib/rustlib/${target}/lib/*.so", "lib/rustlib/${target}/lib/*.dylib"]),
           )
 
           rust_toolchain(
