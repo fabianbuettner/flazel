@@ -333,6 +333,10 @@ Then `bazel test --config=asan //...` and done.
 --features=asan,ubsan                 # silently ignored
 ```
 
+Bazel cannot comma-split a repeatable list flag, so this is not fixable in flazel.
+To stop repeating `--features`, bundle them once in a `--config` (see Usage above)
+and type `--config=asan`.
+
 ## Non-BCR dependencies
 
 ### Bazel modules with no registry entry (`nonBcrDeps`)
@@ -398,7 +402,7 @@ nix build  # same bits, every time
 
 **Incremental.** Touch one `.cc` file, rebuild one target. Bazel tracks at file granularity.
 
-**Offline.** After `nix develop`, the network is optional. Air-gapped CI works.
+**Offline.** Once the dev-shell closure is in your Nix store (first `nix develop`, an internal binary cache, or `nix copy` over sneakernet), the network is optional: `nix develop --offline` and Bazel builds both run air-gapped.
 
 **Portable.** Install Nix. That's the entire prerequisites list.
 
@@ -406,5 +410,6 @@ nix build  # same bits, every time
 
 - [Nix Flakes](https://nixos.wiki/wiki/Flakes): reproducible package management
 - [Bazel](https://bazel.build/): incremental build system
+- [rules_cc](https://github.com/bazelbuild/rules_cc): Bazel rules for C/C++
 - [rules_rust](https://github.com/bazelbuild/rules_rust): Bazel rules for Rust
 - [rust-overlay](https://github.com/oxalica/rust-overlay): pinned Rust toolchains for Nix
