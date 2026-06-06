@@ -32,6 +32,8 @@
 #     gcc = pkgs.pkgsCross.mips64-unknown-linux-gnuabi64.buildPackages.gcc;
 #     target = {
 #       triple = "mips64-unknown-elf";
+#       # cpu/os normally derive from the triple; set them explicitly only for
+#       # triples mkSystemFromString cannot parse, like this 3-component one.
 #       cpu = "mips64";
 #       os = "none";
 #       libc = null;  # bare metal - static is auto-inferred
@@ -160,8 +162,6 @@ let
     if effectiveStatic then
       {
         triple = "x86_64-unknown-linux-musl";
-        cpu = "x86_64";
-        os = "linux";
         libc = effectiveGcc.libc;
         libcName = "musl";
         fortifyHeaders = buildPkgs.fortify-headers;
@@ -169,8 +169,6 @@ let
     else
       {
         triple = "x86_64-unknown-linux-gnu";
-        cpu = "x86_64";
-        os = "linux";
         libc = pkgs.glibc;
         libcName = "glibc";
         fortifyHeaders = null;
@@ -181,8 +179,14 @@ let
 
   # Extract target values
   targetTriple = effectiveTarget.triple;
-  targetCpu = effectiveTarget.cpu;
-  targetOs = effectiveTarget.os;
+  # cpu/os are redundant with the triple, so derive them from it. parsedTriple is
+  # forced lazily: an explicit cpu/os override still works (and is required) for
+  # triples mkSystemFromString cannot parse, e.g. the 3-component bare-metal
+  # `mips64-unknown-elf`. libcName stays explicit on purpose: the triple's abi for
+  # glibc is "gnu", not "glibc", and it feeds target_libc below.
+  parsedTriple = pkgs.lib.systems.parse.mkSystemFromString targetTriple;
+  targetCpu = effectiveTarget.cpu or parsedTriple.cpu.name;
+  targetOs = effectiveTarget.os or parsedTriple.kernel.name;
   libc = effectiveTarget.libc or null;
   libcDev = if libc != null then libc.dev else null;
   libcName = effectiveTarget.libcName or (if libc == null then "none" else "unknown");
