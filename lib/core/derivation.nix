@@ -24,7 +24,10 @@ rec {
       flazelPath ? null,
       caches,
     }:
-    (if flazelPath != null then "build --override_module=flazel=${flazelPath}\n" else "")
+    # `common`, not `build`: `bazel mod` subcommands (used by flazel-lock-archives)
+    # resolve modules too but read no build-scoped flags; Bazel 7 ignores
+    # common-scoped flags a command does not support.
+    (if flazelPath != null then "common --override_module=flazel=${flazelPath}\n" else "")
     + (
       if caches ? nonBcrOverrideFlags && caches.nonBcrOverrideFlags != "" then
         caches.nonBcrOverrideFlags + "\n"

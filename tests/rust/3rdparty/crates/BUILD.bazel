@@ -32,8 +32,20 @@ filegroup(
 
 # Workspace Member Dependencies
 alias(
+    name = "proptest-1.11.0",
+    actual = "@crate_vendor__proptest-1.11.0//:proptest",
+    tags = ["manual"],
+)
+
+alias(
     name = "proptest",
     actual = "@crate_vendor__proptest-1.11.0//:proptest",
+    tags = ["manual"],
+)
+
+alias(
+    name = "serde-1.0.228",
+    actual = "@crate_vendor__serde-1.0.228//:serde",
     tags = ["manual"],
 )
 
@@ -44,14 +56,32 @@ alias(
 )
 
 alias(
+    name = "serde_json-1.0.150",
+    actual = "@crate_vendor__serde_json-1.0.150//:serde_json",
+    tags = ["manual"],
+)
+
+alias(
     name = "serde_json",
     actual = "@crate_vendor__serde_json-1.0.150//:serde_json",
     tags = ["manual"],
 )
 
 alias(
+    name = "tempfile-3.27.0",
+    actual = "@crate_vendor__tempfile-3.27.0//:tempfile",
+    tags = ["manual"],
+)
+
+alias(
     name = "tempfile",
     actual = "@crate_vendor__tempfile-3.27.0//:tempfile",
+    tags = ["manual"],
+)
+
+alias(
+    name = "tokio-1.52.3",
+    actual = "@crate_vendor__tokio-1.52.3//:tokio",
     tags = ["manual"],
 )
 

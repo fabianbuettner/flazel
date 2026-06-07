@@ -42,7 +42,11 @@
       # Core library functions (language-agnostic)
       coreLib = {
         # BCR cache generation
-        inherit (import ./lib/core/bcr-cache.nix) mkBcrCaches parseLockFile;
+        inherit (import ./lib/core/bcr-cache.nix)
+          mkBcrCaches
+          parseLockFile
+          parseArchiveManifest
+          ;
 
         # Utility functions
         getTransitiveDeps = import ./lib/core/utils.nix;

@@ -1,0 +1,19 @@
+--- a/src/cli/vendor.rs	2026-06-07 12:20:28.331014951 +0200
++++ b/src/cli/vendor.rs	2026-06-07 12:27:39.534015716 +0200
+@@ -198,10 +198,15 @@
+             release: value
+                 .get("release")
+                 .map(|s| {
++                    // The value is "release X.Y.Z[-suffix]"; official bazel makes
++                    // the version the last token, but nix-built bazel reports
++                    // "release 7.6.0- (@non-git)". Take the first token that looks
++                    // like a version and drop the dangling pre-release dash.
+                     let mut r = s
+                         .split_whitespace()
+-                        .last()
++                        .find(|t| t.starts_with(|c: char| c.is_ascii_digit()))
+                         .ok_or_else(|| anyhow!("Unexpected release value: {}", s))?
++                        .trim_end_matches('-')
+                         .to_owned();
+ 
+                     // Force release candidates to conform to semver.

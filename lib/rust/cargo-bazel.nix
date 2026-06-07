@@ -10,16 +10,16 @@
 # For a different rules_rust version, override all three:
 #   cargoBazel = flazel.lib.rust.mkCargoBazel {
 #     inherit pkgs;
-#     rulesRustVersion = "0.70.0";
+#     rulesRustVersion = "0.56.0";
 #     rulesRustHash = "sha256-...";
 #     cargoHash = "sha256-...";
 #   };
 #
 {
   pkgs,
-  rulesRustVersion ? "0.56.0",
-  rulesRustHash ? "sha256-AJPxxTF7Kx9sYmiAs5L6Jjo53IegXXma9QdMWzBSpAk=",
-  cargoHash ? "sha256-1tuLZVyHBGYAJXrnfgq0ItDz+V0UZ7yFPEWjR7CZqKs=",
+  rulesRustVersion ? "0.70.0",
+  rulesRustHash ? "sha256-Al+stykYCiGJ4hgpgAovldrXxCkwwU7IaM94en10PWM=",
+  cargoHash ? "sha256-MPaL3S2xxtzk+7JbAk5xskeKvQ7d3w353HTWrG4XHio=",
 }:
 let
   rulesRustSrc = pkgs.fetchFromGitHub {
@@ -35,6 +35,11 @@ pkgs.rustPlatform.buildRustPackage {
   src = rulesRustSrc;
   sourceRoot = "source/crate_universe";
   inherit cargoHash;
+  # vendor mode parses `bazel info release` assuming the official "release
+  # X.Y.Z" format; nix-built bazel reports "7.6.0- (@non-git)" and the parse
+  # panics the whole vendor run. Lenient-parse patch; drop once upstream
+  # accepts an equivalent fix.
+  patches = [ ./cargo-bazel-release-parse.patch ];
   nativeBuildInputs = [ pkgs.pkg-config ];
   buildInputs = [ pkgs.openssl ];
   doCheck = false;

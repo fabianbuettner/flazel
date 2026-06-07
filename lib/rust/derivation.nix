@@ -78,7 +78,13 @@ coreDeriv.mkFlazelDerivation {
     # rules_rust bootstraps its process_wrapper via a #!/usr/bin/env bash script,
     # which the offline nix sandbox lacks. Embed the hermetic sh_toolchain bash
     # instead so the bootstrap runs without /usr/bin/env.
-    + "build --@rules_rust//rust/settings:experimental_use_sh_toolchain_for_bootstrap_process_wrapper=True\n";
+    + "build --@rules_rust//rust/settings:experimental_use_sh_toolchain_for_bootstrap_process_wrapper=True\n"
+    # crates_vendor honors this action env over its in-bazel-built generator,
+    # so the (patched) Nix cargo-bazel serves the vendor path too; the URL
+    # export in rustDepsSetup covers the from_cargo extension path.
+    + pkgs.lib.optionalString (
+      cargoBazel != null
+    ) "build --action_env=CARGO_BAZEL_GENERATOR_PATH=${cargoBazel}/bin/cargo-bazel\n";
   extraDepsSetup = rustDepsSetup;
 
   nativeBuildInputs = [

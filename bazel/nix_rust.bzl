@@ -107,10 +107,13 @@ def _nix_rust_host_tools_impl(repository_ctx):
     rust_host_tools repo in MODULE.bazel:
 
         host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-        host_tools.host_tools(edition = "2021", version = "1.85.0")
         nix_host = use_repo_rule("@flazel//bazel:nix_rust.bzl", "nix_rust_host_tools")
         nix_host(name = "nix_rust_host_tools")
         override_repo(host_tools, rust_host_tools = "nix_rust_host_tools")
+
+    Do NOT add a host_tools.host_tools(...) tag: rules_rust declares the
+    default repo itself (a duplicate-name error since 0.70), and the override
+    discards the downloaded toolchain anyway.
 
     crate_universe only references @rust_host_tools//:bin/{cargo,rustc}; rustc and
     cargo find their sysroot via their real Nix store path, so only the binaries

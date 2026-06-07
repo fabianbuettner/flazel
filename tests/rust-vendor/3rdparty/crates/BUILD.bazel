@@ -31,6 +31,12 @@ filegroup(
 
 # Workspace Member Dependencies
 alias(
+    name = "itoa-1.0.18",
+    actual = "//3rdparty/crates/itoa-1.0.18:itoa",
+    tags = ["manual"],
+)
+
+alias(
     name = "itoa",
     actual = "//3rdparty/crates/itoa-1.0.18:itoa",
     tags = ["manual"],

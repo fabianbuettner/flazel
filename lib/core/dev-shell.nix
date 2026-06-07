@@ -31,6 +31,9 @@ in
 pkgs.mkShell {
   packages = [
     bazel
+    # Regenerates flazel-archives.json (downloads hidden from the lockfile by
+    # reproducible module extensions); see lib/core/archive-manifest.nix.
+    (import ./archive-manifest.nix { inherit pkgs; })
   ]
   ++ packages;
 

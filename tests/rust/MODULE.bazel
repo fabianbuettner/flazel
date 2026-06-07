@@ -3,7 +3,7 @@ module(
     version = "0.0.1",
 )
 
-bazel_dep(name = "rules_rust", version = "0.56.0")
+bazel_dep(name = "rules_rust", version = "0.70.0")
 bazel_dep(name = "rules_cc", version = "0.1.4")
 bazel_dep(name = "flazel", version = "0.0.1")
 bazel_dep(name = "platforms", version = "1.0.0")
@@ -57,10 +57,6 @@ register_toolchains("@local_config_cc_musl//:cc_toolchain")
 # Host tools for crate_universe. rules_rust would download a prebuilt rustc that
 # does not run on NixOS; override it with the Nix toolchain instead.
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-host_tools.host_tools(
-    edition = "2021",
-    version = "1.85.0",
-)
 
 nix_rust_host_tools = use_repo_rule("@flazel//bazel:nix_rust.bzl", "nix_rust_host_tools")
 

@@ -29,7 +29,7 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 
 - **Offline builds**: BCR modules (and vendored crate archives) pre-fetched into the Nix store. After initial setup, the network is optional.
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
-- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input.
+- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. Downloads that Bazel hides from the lockfile (reproducible module extensions, e.g. rules_rust's internal crates) are enumerated in a committed `flazel-archives.json`, regenerated with `flazel-lock-archives` (see [Offline Rust](#offline-rust)).
 
 ## Quick Start (C/C++)
 
@@ -123,7 +123,7 @@ Rust needs a CC toolchain for linking. On NixOS the system linker doesn't exist,
 Wire the toolchains in `MODULE.bazel`:
 
 ```starlark
-bazel_dep(name = "rules_rust", version = "0.56.0")
+bazel_dep(name = "rules_rust", version = "0.70.0")
 bazel_dep(name = "rules_cc", version = "0.1.4")
 bazel_dep(name = "flazel", version = "0.0.1")
 
@@ -143,8 +143,9 @@ inject_repo(nix_rust, "rules_rust")
 
 # crate_universe needs a host rustc to splice Cargo metadata. rules_rust
 # downloads one that segfaults on NixOS, so override it with the Nix toolchain.
+# (No host_tools.host_tools(...) tag: rules_rust declares the default repo
+# itself, and the override discards the downloaded toolchain anyway.)
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-host_tools.host_tools(edition = "2021", version = "1.85.0")
 
 nix_rust_host_tools = use_repo_rule("@flazel//bazel:nix_rust.bzl", "nix_rust_host_tools")
 nix_rust_host_tools(name = "nix_rust_host_tools")
@@ -214,6 +215,26 @@ imported, so a dependency bump plus a re-vendor updates the versioned spoke
 repos automatically, with no hand-maintained list. The committed defs plus
 crate archives from `mkBcrCaches` make the build fully offline. Working
 example: [`tests/rust/`](tests/rust/).
+
+### Archives the lockfile cannot see
+
+Module extensions that declare `reproducible = True` are deliberately omitted
+from `MODULE.bazel.lock`, so their downloads (e.g. rules_rust's internal
+crates such as tinyjson) are invisible to `mkBcrCaches`. The dev shell ships
+`flazel-lock-archives`, which asks Bazel itself for every extension-generated
+repo spec and writes the missing `(url, sha256)` list to `flazel-archives.json`.
+Commit the manifest and wire it in:
+
+```nix
+caches = flazel.lib.mkBcrCaches {
+  inherit pkgs;
+  lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+  extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
+};
+```
+
+Regenerate it alongside `MODULE.bazel.lock` after a dependency change; a stale
+manifest fails loudly (the offline build names the missing archive).
 
 ## How it works
 

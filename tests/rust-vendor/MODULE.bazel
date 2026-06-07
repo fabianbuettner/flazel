@@ -3,7 +3,7 @@ module(
     version = "0.0.1",
 )
 
-bazel_dep(name = "rules_rust", version = "0.56.0")
+bazel_dep(name = "rules_rust", version = "0.70.0")
 bazel_dep(name = "rules_cc", version = "0.1.4")
 bazel_dep(name = "flazel", version = "0.0.1")
 bazel_dep(name = "platforms", version = "1.0.0")
@@ -36,10 +36,6 @@ register_toolchains("@local_config_rust_default//:all")
 # Nix host tools, used only when (re)vendoring via `bazel run //:crate_vendor`.
 # Offline builds use the committed local sources and need none of this.
 host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-host_tools.host_tools(
-    edition = "2021",
-    version = "1.85.0",
-)
 
 nix_rust_host_tools = use_repo_rule("@flazel//bazel:nix_rust.bzl", "nix_rust_host_tools")
 

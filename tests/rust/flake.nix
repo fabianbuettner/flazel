@@ -47,6 +47,10 @@
         caches = flazel.lib.mkBcrCaches {
           inherit pkgs;
           lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+          # Downloads hidden from the lockfile by reproducible module
+          # extensions (rules_rust internal crates). Regenerate with
+          # `flazel-lock-archives` after a dependency change.
+          extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
         };
 
         cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs; };

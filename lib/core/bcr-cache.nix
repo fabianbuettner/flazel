@@ -40,6 +40,12 @@
     in
     if isValidJson then builtins.fromJSON content else { registryFileHashes = { }; };
 
+  # Parse a flazel-archives.json manifest (written by flazel-lock-archives in
+  # the dev shell) into the extraArchives list. Missing file = no extra
+  # archives, so adopting the manifest is opt-in per workspace.
+  parseArchiveManifest =
+    path: if builtins.pathExists path then builtins.fromJSON (builtins.readFile path) else [ ];
+
   # Generate BCR caches from lock file
   mkBcrCaches =
     {
@@ -179,7 +185,8 @@
 
       # Generate .bazelrc.nix --override_module lines for non-BCR modules.
       nonBcrOverrideFlags = builtins.concatStringsSep "\n" (
-        map (dep: "build --override_module=${dep.name}=${mkExtractedDep dep}") nonBcrDeps
+        # common, not build: see mkBazelrcFooter (bazel mod must see overrides too).
+        map (dep: "common --override_module=${dep.name}=${mkExtractedDep dep}") nonBcrDeps
       );
 
       # Bazel keys its content-addressable cache by the hex sha256 of the archive

@@ -6,10 +6,19 @@
 #     bazel run @@//:crate_vendor
 ###############################################################################
 
-load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load(
+    "@rules_rust//cargo:defs.bzl",
+    "cargo_build_script",
+    "cargo_toml_env_vars",
+)
 load("@rules_rust//rust:defs.bzl", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
+
+cargo_toml_env_vars(
+    name = "cargo_toml_env_vars",
+    src = "Cargo.toml",
+)
 
 rust_library(
     name = "getrandom",
@@ -31,6 +40,9 @@ rust_library(
     ),
     crate_root = "src/lib.rs",
     edition = "2024",
+    rustc_env_files = [
+        ":cargo_toml_env_vars",
+    ],
     rustc_flags = [
         "--cap-lints=allow",
     ],
@@ -44,6 +56,7 @@ rust_library(
     target_compatible_with = select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [],
         "@rules_rust//rust/platform:aarch64-apple-ios": [],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [],
         "@rules_rust//rust/platform:aarch64-linux-android": [],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [],
@@ -51,7 +64,9 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
+        "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -61,14 +76,21 @@ rust_library(
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:thumbv6m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv7em-none-eabihf": [],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [],
+        "@rules_rust//rust/platform:wasm32-unknown-emscripten": [],
         "@rules_rust//rust/platform:wasm32-unknown-unknown": [],
         "@rules_rust//rust/platform:wasm32-wasip1": [],
+        "@rules_rust//rust/platform:wasm32-wasip1-threads": [],
+        "@rules_rust//rust/platform:wasm32-wasip2": [],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [],
         "@rules_rust//rust/platform:x86_64-apple-ios": [],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:x86_64-linux-android": [],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [],
@@ -76,6 +98,7 @@ rust_library(
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [],
         "@rules_rust//rust/platform:x86_64-unknown-none": [],
+        "@rules_rust//rust/platform:x86_64-unknown-uefi": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     version = "0.4.2",
@@ -87,6 +110,9 @@ rust_library(
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "macos", target_os = "openbsd", target_os = "vita", target_os = "emscripten"))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "ios", target_os = "visionos", target_os = "watchos", target_os = "tvos"))
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "ios", target_os = "visionos", target_os = "watchos", target_os = "tvos"))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
@@ -105,6 +131,9 @@ rust_library(
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "haiku", target_os = "redox", target_os = "nto", target_os = "aix"))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "@crate_vendor__libc-0.2.186//:libc",  # cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
@@ -128,13 +157,25 @@ rust_library(
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
         ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "@crate_vendor__libc-0.2.186//:libc",  # cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
+        ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(all(any(target_os = "linux", target_os = "android"), not(any(all(target_os = "linux", target_env = ""), getrandom_backend = "custom", getrandom_backend = "linux_raw", getrandom_backend = "rdrand", getrandom_backend = "rndr"))))
+        ],
+        "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
+            "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "macos", target_os = "openbsd", target_os = "vita", target_os = "emscripten"))
+        ],
+        "@rules_rust//rust/platform:wasm32-wasip2": [
+            "@crate_vendor__wasip2-1.0.3-wasi-0.2.9//:wasip2",  # cfg(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"))
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "macos", target_os = "openbsd", target_os = "vita", target_os = "emscripten"))
         ],
         "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "ios", target_os = "visionos", target_os = "watchos", target_os = "tvos"))
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [
             "@crate_vendor__libc-0.2.186//:libc",  # cfg(any(target_os = "ios", target_os = "visionos", target_os = "watchos", target_os = "tvos"))
         ],
         "@rules_rust//rust/platform:x86_64-linux-android": [
@@ -188,6 +229,9 @@ cargo_build_script(
     ),
     edition = "2024",
     pkg_name = "getrandom",
+    rustc_env_files = [
+        ":cargo_toml_env_vars",
+    ],
     rustc_flags = [
         "--cap-lints=allow",
     ],
