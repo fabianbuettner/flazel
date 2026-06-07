@@ -29,7 +29,7 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 
 - **Offline builds**: BCR modules (and vendored crate archives) pre-fetched into the Nix store. After initial setup, the network is optional.
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
-- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. Downloads that Bazel hides from the lockfile (reproducible module extensions, e.g. rules_rust's internal crates) are enumerated in a committed `flazel-archives.json`, regenerated with `flazel-lock-archives` (see [Offline Rust](#offline-rust)).
+- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. Downloads that Bazel hides from the lockfile (reproducible module extensions, e.g. rules_rust's internal crates) can be enumerated in a committed `flazel-archives.json` for strict-offline builds, regenerated with `flazel-lock-archives` (see [Offline Rust](#offline-rust)).
 
 ## Quick Start (C/C++)
 
@@ -223,12 +223,22 @@ example: [`tests/rust/`](tests/rust/).
 
 ### Archives the lockfile cannot see
 
+> **When you need this:** only for **strict-offline** builds, i.e. the hermetic
+> `mkDerivation` path, which wires `--registry=file://` and makes the Nix-store
+> cache the *exclusive* source. A dev-shell build wires only
+> `--repository_cache` (a cache *with network fallback*), so a missing archive
+> is just fetched on a cache miss. If your CI builds in the dev shell and you
+> have no hermetic `mkDerivation` check, skip this whole section: omit
+> `extraArchives`, don't commit `flazel-archives.json`, and don't run
+> `flazel-lock-archives`. You lose only cold-cache pre-seeding, not
+> correctness.
+
 Module extensions that declare `reproducible = True` are deliberately omitted
 from `MODULE.bazel.lock`, so their downloads (e.g. rules_rust's internal
 crates such as tinyjson) are invisible to `mkBcrCaches`. The dev shell ships
 `flazel-lock-archives`, which asks Bazel itself for every extension-generated
 repo spec and writes the missing `(url, sha256)` list to `flazel-archives.json`.
-Commit the manifest and wire it in:
+For a strict-offline build, commit the manifest and wire it in:
 
 ```nix
 caches = flazel.lib.mkBcrCaches {
