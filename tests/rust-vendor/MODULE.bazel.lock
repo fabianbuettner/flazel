@@ -121,7 +121,7 @@
     },
     "@@flazel~//bazel:nix_rust.bzl%nix_rust": {
       "general": {
-        "bzlTransitiveDigest": "vFtmcI8rlVP8k129hGWlJLBBCO9+sJwTVkpgJzee8BM=",
+        "bzlTransitiveDigest": "m+Zl7Rh1oAkij1n/867QB51drPorhPJyFu7TRC62IRY=",
         "usagesDigest": "j1DPoEQX92LO+39RS0ORiwxHa4gTmE/YJBHKs66szTw=",
         "recordedFileInputs": {
           "@@//MODULE.bazel": "d16eab0e4c8aab9781b700feaee01b6bda766c6578f2631b9c3e0547e7c5e9d1"

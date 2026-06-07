@@ -105,8 +105,13 @@ bazel test //...
         lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
       };
 
-      # Optional: for crate_universe users
-      cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs; };
+      # Optional: for crate_universe users. Version + source derive from the
+      # lockfile's resolved rules_rust, so the generator cannot skew from the
+      # bazel_dep the build uses.
+      cargoBazel = flazel.lib.rust.mkCargoBazel {
+        inherit pkgs;
+        lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+      };
     in {
       devShells.x86_64-linux.default = flazel.lib.rust.mkDevShell {
         inherit pkgs caches cargoBazel;

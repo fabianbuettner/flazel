@@ -44,16 +44,17 @@
           ];
         };
 
+        lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+
         caches = flazel.lib.mkBcrCaches {
-          inherit pkgs;
-          lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+          inherit pkgs lockFile;
           # Downloads hidden from the lockfile by reproducible module
           # extensions (rules_rust internal crates). Regenerate with
           # `flazel-lock-archives` after a dependency change.
           extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
         };
 
-        cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs; };
+        cargoBazel = flazel.lib.rust.mkCargoBazel { inherit pkgs lockFile; };
       in
       {
         # Hermetic OFFLINE build of the crate_universe binary (serde/tokio etc.),
