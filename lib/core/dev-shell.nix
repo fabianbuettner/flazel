@@ -39,6 +39,28 @@ pkgs.mkShell {
 
   shellHook = ''
     echo "=== Flazel Development Environment ==="
+    # Run all deps-dir setup from the Bazel workspace root (nearest ancestor with
+    # a MODULE.bazel / WORKSPACE marker), then restore the caller's directory.
+    # mkFlazelDepsSetup, the language extraSetup it runs, and the consumer
+    # shellHook below all write ${nixDepsDir} with cwd-relative paths; without
+    # this, entering the devshell from a subdirectory scatters ${nixDepsDir}
+    # there, and its half-materialized offline registry then breaks
+    # `bazel build //...` package loading. Only the dev shell needs this: the
+    # build derivation runs mkFlazelDepsSetup with its sandbox cwd already at the
+    # workspace root. Falls back to a no-op if no marker is found, and the
+    # restore makes the deps-dir location the only observable effect.
+    _flazel_prev="$PWD"
+    _flazel_root="$PWD"
+    while [ "$_flazel_root" != / ] \
+      && [ ! -e "$_flazel_root/MODULE.bazel" ] \
+      && [ ! -e "$_flazel_root/WORKSPACE" ] \
+      && [ ! -e "$_flazel_root/WORKSPACE.bazel" ]; do
+      _flazel_root="$(dirname "$_flazel_root")"
+    done
+    case "$_flazel_root" in
+      /) ;; # no workspace marker found: leave cwd as-is (previous behavior)
+      *) cd "$_flazel_root" ;;
+    esac
     ${mkFlazelDepsSetup {
       inherit
         pkgs
@@ -52,5 +74,6 @@ pkgs.mkShell {
     echo ""
     echo "Ready! Run: bazel build //..."
     ${shellHook}
+    cd "$_flazel_prev"
   '';
 }
