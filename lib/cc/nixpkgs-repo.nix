@@ -50,8 +50,15 @@ let
   # Filter to only include actual libraries
   transitiveDeps = if static then builtins.filter isLibrary (getTransitiveDeps pkg) else [ ];
 
-  # BUILD.bazel content for dynamic linking
-  dynamicBuildContent = ''
+  # Bazel stages a `srcs` .so into _solib_x86_64/ and links dependents with a relative
+  # $ORIGIN runpath, which resolves only at the depth it assumes. Store paths are
+  # immutable, so naming the directory outright always resolves; DT_RUNPATH is ordered,
+  # so the relative entry still wins when present.
+  rpathAttr = "\n    linkopts = [\"-Wl,-rpath,${libPkg}/lib\"],";
+
+  # BUILD.bazel content for dynamic linking. Takes the rpath attribute so the header-only
+  # case can drop it without a second copy of the rule.
+  dynamicBuildContent = linkoptsAttr: ''
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
     package(default_visibility = ["//visibility:public"])
@@ -63,7 +70,7 @@ let
         # runtime plugins / LD_PRELOAD shims (cairo-trace, gstreamer plugins,
         # pango modules, etc.) and must not be added to DT_NEEDED.
         srcs = glob(["lib/*.so*", "lib/*.dylib"], allow_empty = True),
-        includes = ["include"],
+        includes = ["include"],${linkoptsAttr}
     )
   '';
 
@@ -103,12 +110,21 @@ let
     fi
   '';
 
-  # Shell commands to link dynamic library directory
-  linkDynamicLibs = ''
+  # Symlink the library directory and write the matching BUILD.bazel: one build-time
+  # test of lib/ serves both. Build-time on purpose -- builtins.pathExists on a store
+  # path realises it (import from derivation).
+  generateDynamicBuild = ''
     if [ -d "${libPkg}/lib" ]; then
       ln -s "${libPkg}/lib" $out/lib
+      cat > $out/BUILD.bazel <<'DYNEOF'
+    ${dynamicBuildContent rpathAttr}
+    DYNEOF
     else
+      # Header-only: nothing to point an rpath at, and no .so to resolve.
       mkdir -p $out/lib
+      cat > $out/BUILD.bazel <<'DYNHEADERONLY'
+    ${dynamicBuildContent ""}
+    DYNHEADERONLY
     fi
   '';
 
@@ -189,11 +205,8 @@ pkgs.runCommand "nixpkgs-${name}"
         ''
       else
         ''
-          # Dynamic: generate BUILD.bazel directly
-          cat > $out/BUILD.bazel <<'DYNEOF'
-          ${dynamicBuildContent}
-          DYNEOF
-          ${linkDynamicLibs}
+          # Dynamic: symlink the libraries, then generate BUILD.bazel.
+          ${generateDynamicBuild}
         ''
     }
   ''
