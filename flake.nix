@@ -114,6 +114,7 @@
             includes = [
               "BUILD"
               "BUILD.bazel"
+              "MODULE.bazel"
               "*.bzl"
             ];
           };
