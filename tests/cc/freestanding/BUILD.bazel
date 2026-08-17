@@ -8,4 +8,9 @@ cc_binary(
     # link cannot resolve. (fortify_source is gated on -c opt, so fastbuild here
     # never enables it.) See the flazel README "freestanding" note.
     features = ["-stack_protector_strong"],
+    # Only the freestanding toolchain can compile this: under any hosted
+    # toolchain the __STDC_HOSTED__ assertion in the source is meant to fail.
+    # The dev shell registers the hosted gcc, so keep the target out of
+    # wildcard patterns; checks.freestanding builds it by label.
+    tags = ["manual"],
 )
