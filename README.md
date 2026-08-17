@@ -130,7 +130,7 @@ Wire the toolchains in `MODULE.bazel`:
 ```starlark
 bazel_dep(name = "rules_rust", version = "0.70.0")
 bazel_dep(name = "rules_cc", version = "0.1.4")
-bazel_dep(name = "flazel", version = "0.0.1")
+bazel_dep(name = "flazel")
 
 nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
 nix_cc.toolchain(name = "default")

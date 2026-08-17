@@ -93,7 +93,7 @@
     "//:crates_vendor_extension.bzl%crates": {
       "general": {
         "bzlTransitiveDigest": "bVyqS1oNxy38g5VVYyyLZ7FdSZ7HDIvLlRdi59bNLz8=",
-        "usagesDigest": "BO8U/HT1BvHloe6GECcGmAaeOsMmOXJ9DMhZoUBhIhg=",
+        "usagesDigest": "Q06tv6DVBWb75OwE/rJwuF0X3dKz+RDGNcXux82cz5E=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1075,9 +1075,9 @@
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
         "bzlTransitiveDigest": "pJqAJhyAX7/Bsx8BihlCYddDm/RuXuSyGBhGVH4+elw=",
-        "usagesDigest": "QSh2CIyAodeCZ7JIvQ28fJmCKEzQPow4j+qotDe4sWA=",
+        "usagesDigest": "mGa58u0ZCZgSBIJsctFTDDky3Rb6E3DBh2dDwnz6asU=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "7d5f6dbbdf60d1e3e430a6834ff0a0325014e2246009819a7ad07c51218e6b4d"
+          "@@//MODULE.bazel": "72e8107e418b6d37706d107acaab4284c112ab0f065a56c0370f4e0e12549dce"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1132,9 +1132,9 @@
     "@@flazel~//bazel:nix_rust.bzl%nix_rust": {
       "general": {
         "bzlTransitiveDigest": "m+Zl7Rh1oAkij1n/867QB51drPorhPJyFu7TRC62IRY=",
-        "usagesDigest": "5yOuhTIXGTQiSwQ7V08+iAP5wwmlbd+S0D12z8Ue9M4=",
+        "usagesDigest": "5yp5evOShgzCW3ObaDm4rHxqWwUMwERlqkuthZkpWtA=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "7d5f6dbbdf60d1e3e430a6834ff0a0325014e2246009819a7ad07c51218e6b4d"
+          "@@//MODULE.bazel": "72e8107e418b6d37706d107acaab4284c112ab0f065a56c0370f4e0e12549dce"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},

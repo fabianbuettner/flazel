@@ -1,9 +1,8 @@
 module(
     name = "flazel-tool-test",
-    version = "0.0.1",
 )
 
-bazel_dep(name = "flazel", version = "0.0.1")
+bazel_dep(name = "flazel")
 local_path_override(
     module_name = "flazel",
     path = "../..",

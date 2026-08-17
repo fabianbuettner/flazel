@@ -93,9 +93,9 @@
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
         "bzlTransitiveDigest": "pJqAJhyAX7/Bsx8BihlCYddDm/RuXuSyGBhGVH4+elw=",
-        "usagesDigest": "rJSgvJW8tUsqtyKO3nBUQ5n5vWaeoetK1jVxShcjZMI=",
+        "usagesDigest": "b6B1rkDJjia4Vk10FbnR3i1/Aa06/7LumShFhZERBjg=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "d8753993762fcf88433839a7f18673d37b9d5397ea87b69ad2b5503590522134"
+          "@@//MODULE.bazel": "05a50b668de828ea683b7dd13d0987137fea401753531ffd2e9afff211818184"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -122,9 +122,9 @@
     "@@flazel~//bazel:nix_rust.bzl%nix_rust": {
       "general": {
         "bzlTransitiveDigest": "m+Zl7Rh1oAkij1n/867QB51drPorhPJyFu7TRC62IRY=",
-        "usagesDigest": "pbDZdoUwNYebsXShoSuoylJH8lahXFsTyNHYbZZ88uw=",
+        "usagesDigest": "Jj9VZ7CQPyifm2lnqoJuzlCcZ3x898wmUvIAJo1hK5o=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "d8753993762fcf88433839a7f18673d37b9d5397ea87b69ad2b5503590522134"
+          "@@//MODULE.bazel": "05a50b668de828ea683b7dd13d0987137fea401753531ffd2e9afff211818184"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},

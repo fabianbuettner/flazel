@@ -1,10 +1,9 @@
 module(
     name = "flazel-cc-test",
-    version = "0.0.1",
 )
 
 bazel_dep(name = "rules_cc", version = "0.1.4")
-bazel_dep(name = "flazel", version = "0.0.1")
+bazel_dep(name = "flazel")
 bazel_dep(name = "platforms", version = "1.0.0")
 
 local_path_override(
