@@ -1,0 +1,26 @@
+# The C environment a toolchain provides: hosted (libc present,
+# __STDC_HOSTED__ == 1) or freestanding (-ffreestanding, no libc). A toolchain
+# declares it, the platform it emits carries it, and a target that builds under
+# only one of them says so with target_compatible_with instead of being hidden
+# behind tags = ["manual"].
+#
+# The default keeps this invisible to anyone who does not care: a platform that
+# never mentions the setting counts as hosted, so hand-written platforms and
+# @platforms//host resolve exactly as before.
+
+package(default_visibility = ["//visibility:public"])
+
+constraint_setting(
+    name = "c_environment",
+    default_constraint_value = ":hosted",
+)
+
+constraint_value(
+    name = "hosted",
+    constraint_setting = ":c_environment",
+)
+
+constraint_value(
+    name = "freestanding",
+    constraint_setting = ":c_environment",
+)

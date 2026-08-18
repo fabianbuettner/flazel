@@ -322,6 +322,15 @@ let
   cpuConstraint = platform.cpuConstraint targetCpu;
   osConstraint = platform.osConstraint targetOs;
 
+  # The C environment, so that toolchain resolution can tell a freestanding
+  # toolchain from a hosted one for the same triple, and a target that needs
+  # one can say so with target_compatible_with.
+  envConstraint =
+    if freestanding then
+      "@flazel//bazel/constraints:freestanding"
+    else
+      "@flazel//bazel/constraints:hosted";
+
   # Exec platform = the host that runs the compiler, derived from the build
   # platform instead of assuming x86_64-linux.
   execCpuConstraint = platform.cpuConstraint pkgs.stdenv.buildPlatform.parsed.cpu.name;
@@ -503,7 +512,7 @@ let
     toolchain(
         name = "cc_toolchain",
         exec_compatible_with = ["${execCpuConstraint}", "${execOsConstraint}"],
-        target_compatible_with = ["${cpuConstraint}", "${osConstraint}"],
+        target_compatible_with = ["${cpuConstraint}", "${osConstraint}", "${envConstraint}"],
         toolchain = ":local_config_cc_toolchain",
         toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
     )
@@ -511,7 +520,7 @@ let
     # Platform for --platforms flag selection
     platform(
         name = "platform",
-        constraint_values = ["${cpuConstraint}", "${osConstraint}"],
+        constraint_values = ["${cpuConstraint}", "${osConstraint}", "${envConstraint}"],
     )
   '';
 
