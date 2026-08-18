@@ -51,7 +51,10 @@ coreDeriv.mkFlazelDerivation {
     installPhase
     ;
 
-  toolchainLines = "build --extra_toolchains=@local_config_cc_${cfg.toolchainName}//:cc_toolchain\n";
+  toolchainLines = import ./bazelrc.nix {
+    inherit (pkgs) lib;
+    names = [ cfg.toolchainName ];
+  };
   extraDepsSetup = ccDepsSetup;
 
   nativeBuildInputs = [

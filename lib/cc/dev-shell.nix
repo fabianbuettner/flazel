@@ -62,9 +62,10 @@ let
     )}
   '';
 
-  ccToolchainLines = pkgs.lib.concatMapStrings (
-    name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
-  ) toolchainNames;
+  ccToolchainLines = import ./bazelrc.nix {
+    inherit (pkgs) lib;
+    names = toolchainNames;
+  };
 
   # Generate toolchain info for shell hook
   toolchainInfo = pkgs.lib.concatStringsSep ", " (

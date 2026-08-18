@@ -66,9 +66,10 @@ coreDeriv.mkFlazelDerivation {
     ;
 
   toolchainLines =
-    pkgs.lib.concatMapStrings (
-      name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
-    ) ccToolchainNames
+    import ../cc/bazelrc.nix {
+      inherit (pkgs) lib;
+      names = ccToolchainNames;
+    }
     + pkgs.lib.concatMapStrings (
       target:
       "build --extra_toolchains=@local_config_rust_${cfg.toolchainName}//:rust_toolchain_${
