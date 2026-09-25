@@ -60,16 +60,19 @@ let
   # case can drop it without a second copy of the rule.
   dynamicBuildContent = linkoptsAttr: ''
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
+    load(":shared_libs.bzl", "SHARED_LIB_PATTERNS")
 
     package(default_visibility = ["//visibility:public"])
 
     cc_library(
         name = "${name}",
         hdrs = ${hdrsGlob},
-        # Match only top-level shared libraries. Files under lib/<pkg>/ are
-        # runtime plugins / LD_PRELOAD shims (cairo-trace, gstreamer plugins,
-        # pango modules, etc.) and must not be added to DT_NEEDED.
-        srcs = glob(["lib/*.so*", "lib/*.dylib"], allow_empty = True),
+        # Which shared libraries to link. Written by the nix_cc repository rule, which
+        # defaults to every TOP-LEVEL one: files under lib/<pkg>/ are runtime plugins /
+        # LD_PRELOAD shims (cairo-trace, gstreamer plugins, pango modules, etc.) and must
+        # not be added to DT_NEEDED. A consumer that names its libs gets only those, so a
+        # package's unused siblings stop contributing DT_NEEDED entries and global symbols.
+        srcs = glob(SHARED_LIB_PATTERNS, allow_empty = True),
         includes = ["include"],${linkoptsAttr}
     )
   '';
