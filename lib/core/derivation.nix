@@ -92,11 +92,23 @@ rec {
       # is false except after a flake update: the usual entry now touches nothing,
       # which also stops a large recursive copy from running every time.
       #
-      # Defined here rather than in each language module because extraSetup is
-      # interpolated below and needs the same guarantees for the symlinks it writes.
+      # Only genuinely mutable state is a real file here: the two caches, which bazel
+      # writes into. Everything else in ${nixDepsDir} is a pure function of the
+      # configuration, so it is built once into the store and reached by one symlink,
+      # rather than assembled in place on every entry. A language module that merges
+      # several toolchains into one tree does that merge in a derivation, not in this
+      # hook: the result is identical, it is cached, and the entry then costs one
+      # readlink instead of a subprocess per entry per file.
+      #
+      # These two helpers are part of the dev shell's contract. They are defined before
+      # extraSetup is interpolated, so a language module may call them, and they are
+      # still in scope in the consumer's own shellHook, which the core dev shell
+      # appends after this.
 
       # Replace $2 with the file $1, only if it differs, by rename (atomic within a
-      # filesystem) so a reader sees the old file whole or the new one whole.
+      # filesystem) so a reader sees the old file whole or the new one whole. Needed
+      # only where a file cannot be a store path: the build appends cache flags to
+      # .bazelrc.nix that are sandbox-absolute, so that one is written, not linked.
       flazel_put() {
           if cmp -s "$1" "$2"; then
               return 0
@@ -115,69 +127,17 @@ rec {
           if [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then
               return 0
           fi
+          # A real directory at the destination is the layout this replaced, which
+          # assembled these trees in place. `mv -T` refuses to overwrite one, so it has
+          # to go. That reopens the absence window for exactly the single entry that
+          # upgrades a stale layout, which is the only way to leave that layout behind
+          # at all; every entry after it takes the branch above and writes nothing.
+          if [ -d "$2" ] && [ ! -L "$2" ]; then
+              rm -rf "$2"
+          fi
           _fz_tmp="$2.tmp.$$"
           ln -sfn "$1" "$_fz_tmp"
           mv -Tf "$_fz_tmp" "$2"
-      }
-
-      # Make directory $1 hold exactly one symlink per remaining argument, named after
-      # that argument's basename. Later arguments win, which is how a consumer with
-      # several toolchains gets one unsuffixed name.
-      #
-      # It prunes as well as links because the `rm -rf` this replaced was what used to
-      # remove an entry the configuration had dropped, and a link into a store path that
-      # is later collected becomes dangling rather than merely unused. Pruning is the
-      # safe half of that wipe: it only removes what nothing in the current
-      # configuration names, so no reader can be mid-build against it without having
-      # already had its .bazelrc.nix replaced underneath it. Call it ONCE per directory
-      # with every source, never once per toolchain -- a second call would prune the
-      # first call's links.
-      flazel_link_dir() {
-          _fz_dest=$1
-          shift
-          mkdir -p "$_fz_dest"
-          _fz_want=" "
-          # Walked BACKWARDS, taking the first source seen for each basename, so the
-          # last argument wins while each destination is written at most once. Walking
-          # forwards and letting each source overwrite the previous reaches the same
-          # final state, but it rewrites every contested name on every entry and, in
-          # between, points that name at a toolchain that is not the one meant to win.
-          # Indexed through eval rather than a reversed list so a source path never
-          # goes through word splitting; the set of names already linked is held as a
-          # space-delimited string, so a BASENAME containing a space would defeat the
-          # membership test. Nix store path names cannot contain one, which is the only
-          # thing this is ever called with. The braces are mandatory (past $9, $10 parses as
-          # $1 followed by 0), and a brace opening a shell parameter expansion has to
-          # be escaped with a doubled quote here, since this is a Nix indented string
-          # and Nix would otherwise read it as its own interpolation. That applies to
-          # a comment too, which is why this sentence spells none of it literally.
-          _fz_i=$#
-          while [ "$_fz_i" -gt 0 ]; do
-              eval "_fz_src=\''${$_fz_i}"
-              _fz_i=$((_fz_i - 1))
-              _fz_name=$(basename "$_fz_src")
-              case "$_fz_want" in
-                  *" $_fz_name "*) continue ;;
-              esac
-              _fz_want="$_fz_want$_fz_name "
-              flazel_link "$_fz_src" "$_fz_dest/$_fz_name"
-          done
-          for _fz_have in "$_fz_dest"/*; do
-              # An empty directory leaves the glob unexpanded, so check it exists; -L
-              # too, since a dangling link is exactly what wants pruning.
-              [ -e "$_fz_have" ] || [ -L "$_fz_have" ] || continue
-              _fz_name=$(basename "$_fz_have")
-              case "$_fz_name" in
-                  # A concurrent entry's half-written link, waiting on its own rename.
-                  # Removing it would make that rename fail, which is the kind of race
-                  # this whole arrangement exists to remove. Its owner cleans it up.
-                  *.tmp.*) continue ;;
-              esac
-              case "$_fz_want" in
-                  *" $_fz_name "*) ;;
-                  *) rm -rf "$_fz_have" ;;
-              esac
-          done
       }
 
       mkdir -p ${nixDepsDir}

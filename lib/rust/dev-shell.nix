@@ -31,31 +31,34 @@ let
 
   primaryCfg = builtins.head toolchainList;
 
-  # flazel_link rather than `ln -sfn`, for the reason the helper's definition gives:
-  # this runs on every `nix develop` entry, and -f unlinks before it links, so each
-  # entry left these paths briefly absent while a concurrent bazel could be reading
-  # them. Per-entry rather than flazel_link_dir because a toolchain directory here is
-  # not a flat set of links: it holds rust/, cc/ and deps/ side by side, contributed by
-  # two different attribute sets.
-  rustDepsSetup = ''
-    mkdir -p ${nixDepsDir}/toolchains ${nixDepsDir}/libs
-
-    # Symlink each Rust toolchain (creates toolchains/<name>/rust/)
+  # Merged in a derivation for the reason the cc module gives: the tree is a pure
+  # function of the two toolchain sets, so it is built once and linked, not assembled
+  # per entry. A toolchain directory here is nested rather than flat -- rust/, cc/ and
+  # deps/ side by side, contributed by two different attribute sets -- which the
+  # derivation expresses directly and a merge in the hook could not.
+  mergedToolchains = pkgs.runCommand "flazel-rust-toolchains" { } ''
+    mkdir -p $out
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
-        mkdir -p ${nixDepsDir}/toolchains/${name}
-        flazel_link ${cfg.bazelNixDeps}/toolchains/${name}/rust ${nixDepsDir}/toolchains/${name}/rust
+        mkdir -p $out/${name}
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/rust $out/${name}/rust
       '') toolchains
     )}
-
-    # Symlink each CC toolchain (creates toolchains/<name>/cc/ and deps/)
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
-        mkdir -p ${nixDepsDir}/toolchains/${name}
-        flazel_link ${cfg.bazelNixDeps}/toolchains/${name}/cc ${nixDepsDir}/toolchains/${name}/cc
-        flazel_link ${cfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
+        mkdir -p $out/${name}
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/cc $out/${name}/cc
+        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps $out/${name}/deps
       '') ccToolchains
     )}
+  '';
+
+  rustDepsSetup = ''
+    flazel_link ${mergedToolchains} ${nixDepsDir}/toolchains
+
+    # No rust toolchain contributes libs, but the directory is part of the layout a
+    # consumer's bazelrc names, so it exists rather than being conditionally absent.
+    mkdir -p ${nixDepsDir}/libs
 
     ${pkgs.lib.optionalString (cargoBazel != null) ''
       export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"

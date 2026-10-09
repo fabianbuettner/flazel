@@ -38,30 +38,44 @@ let
   # All toolchains should have compatible host tools
   primaryCfg = builtins.head toolchainList;
 
-  # CC-specific setup: symlink toolchains and libs.
+  # One tree per destination, merged HERE rather than in the dev shell hook, because
+  # the contents are a pure function of the toolchain set. Assembling them per entry
+  # cost a subprocess per file per entry (a basename and a readlink each, ~160
+  # subprocesses and ~360ms on a two-toolchain consumer) and needed the hook to prune
+  # names the configuration had dropped. A store path needs neither: swapping the one
+  # symlink below replaces the whole set at once, and what it replaced is collected.
   #
-  # flazel_link_dir, not `ln -s` / `ln -sfn`: this runs on every `nix develop` entry,
-  # including the `nix develop --command bazel ...` form, so it runs while another
-  # bazel is starting. `ln -sfn` unlinks before it symlinks, which left every library
-  # in ${nixDepsDir}/libs briefly absent on each entry -- and that directory is where a
-  # consumer's build resolves the headers of the libraries its toolchain names, so a
-  # build landing in the window failed on a missing header. One call per directory
-  # carrying every source, since the helper prunes what its arguments do not name.
-  ccDepsSetup = ''
-    flazel_link_dir ${nixDepsDir}/toolchains ${
-      pkgs.lib.concatStringsSep " " (
-        pkgs.lib.mapAttrsToList (name: cfg: "${cfg.bazelNixDeps}/toolchains/${name}") toolchains
-      )
-    }
+  # `ln -sfn` is right inside a derivation, where nothing can observe the output until
+  # it is complete, and is what makes a later toolchain win a name several provide.
+  # Attribute order decides that, as it did when this loop ran in the hook.
+  mergedToolchains = pkgs.runCommand "flazel-cc-toolchains" { } ''
+    mkdir -p $out
+    ${pkgs.lib.concatStringsSep "\n" (
+      pkgs.lib.mapAttrsToList (
+        name: cfg: "ln -sfn ${cfg.bazelNixDeps}/toolchains/${name} $out/${name}"
+      ) toolchains
+    )}
+  '';
 
-    # Merge libs from all toolchains (each bazelNixDeps already has both suffixed and
-    # unsuffixed symlinks, e.g., boost and boost_default). The globs expand in
-    # attribute order, so a later toolchain still wins the unsuffixed name.
-    flazel_link_dir ${nixDepsDir}/libs ${
-      pkgs.lib.concatStringsSep " " (
-        pkgs.lib.mapAttrsToList (name: cfg: "${cfg.bazelNixDeps}/libs/*") toolchains
-      )
-    }
+  # Each bazelNixDeps already carries both the suffixed and the unsuffixed name (e.g.
+  # boost and boost_default), so merging is what gives one unsuffixed winner.
+  mergedLibs = pkgs.runCommand "flazel-cc-libs" { } ''
+    mkdir -p $out
+    ${pkgs.lib.concatStringsSep "\n" (
+      pkgs.lib.mapAttrsToList (name: cfg: ''
+        for lib in ${cfg.bazelNixDeps}/libs/*; do
+          ln -sfn "$lib" "$out/$(basename "$lib")"
+        done
+      '') toolchains
+    )}
+  '';
+
+  # Two symlinks, each skipped when it already points where it should. This is the
+  # same shape the build derivation uses, which links one toolchain's libs directly:
+  # the two paths differed only because this one had several toolchains to merge.
+  ccDepsSetup = ''
+    flazel_link ${mergedToolchains} ${nixDepsDir}/toolchains
+    flazel_link ${mergedLibs} ${nixDepsDir}/libs
   '';
 
   ccToolchainLines = import ./bazelrc.nix {
