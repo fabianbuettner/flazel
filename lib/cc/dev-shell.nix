@@ -38,28 +38,30 @@ let
   # All toolchains should have compatible host tools
   primaryCfg = builtins.head toolchainList;
 
-  # CC-specific setup: symlink toolchains and libs
+  # CC-specific setup: symlink toolchains and libs.
+  #
+  # flazel_link_dir, not `ln -s` / `ln -sfn`: this runs on every `nix develop` entry,
+  # including the `nix develop --command bazel ...` form, so it runs while another
+  # bazel is starting. `ln -sfn` unlinks before it symlinks, which left every library
+  # in ${nixDepsDir}/libs briefly absent on each entry -- and that directory is where a
+  # consumer's build resolves the headers of the libraries its toolchain names, so a
+  # build landing in the window failed on a missing header. One call per directory
+  # carrying every source, since the helper prunes what its arguments do not name.
   ccDepsSetup = ''
-    mkdir -p ${nixDepsDir}/toolchains ${nixDepsDir}/libs
+    flazel_link_dir ${nixDepsDir}/toolchains ${
+      pkgs.lib.concatStringsSep " " (
+        pkgs.lib.mapAttrsToList (name: cfg: "${cfg.bazelNixDeps}/toolchains/${name}") toolchains
+      )
+    }
 
-    # Symlink each toolchain
-    ${pkgs.lib.concatStringsSep "\n" (
-      pkgs.lib.mapAttrsToList (name: cfg: ''
-        ln -s ${cfg.bazelNixDeps}/toolchains/${name} ${nixDepsDir}/toolchains/${name}
-      '') toolchains
-    )}
-
-    # Merge libs from all toolchains (each bazelNixDeps already has both
-    # suffixed and unsuffixed symlinks, e.g., boost and boost_default)
-    ${pkgs.lib.concatStringsSep "\n" (
-      pkgs.lib.mapAttrsToList (name: cfg: ''
-        for lib in ${cfg.bazelNixDeps}/libs/*; do
-          libname=$(basename "$lib")
-          # Use -f to allow later toolchains to override (e.g., default wins for unsuffixed)
-          ln -sfn "$lib" "${nixDepsDir}/libs/$libname"
-        done
-      '') toolchains
-    )}
+    # Merge libs from all toolchains (each bazelNixDeps already has both suffixed and
+    # unsuffixed symlinks, e.g., boost and boost_default). The globs expand in
+    # attribute order, so a later toolchain still wins the unsuffixed name.
+    flazel_link_dir ${nixDepsDir}/libs ${
+      pkgs.lib.concatStringsSep " " (
+        pkgs.lib.mapAttrsToList (name: cfg: "${cfg.bazelNixDeps}/libs/*") toolchains
+      )
+    }
   '';
 
   ccToolchainLines = import ./bazelrc.nix {

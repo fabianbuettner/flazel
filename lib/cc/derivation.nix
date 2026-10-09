@@ -35,8 +35,13 @@ let
   # Uses new directory structure: toolchains/<name>/cc, toolchains/<name>/deps
   ccDepsSetup = ''
     mkdir -p ${nixDepsDir}/toolchains
-    ln -s ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} ${nixDepsDir}/toolchains/${cfg.toolchainName}
-    ln -s ${cfg.bazelNixDeps}/libs ${nixDepsDir}/libs
+    # flazel_link, not `ln -s`: the core setup no longer wipes the deps directory, so
+    # a bare `ln -s` would fail on the second entry with the link already there. It
+    # also must not unlink first -- ${nixDepsDir}/libs is where a consumer's build
+    # resolves its headers, and removing it mid-build is the failure the core comment
+    # describes. See mkFlazelDepsSetup for the helper and the reasoning.
+    flazel_link ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} ${nixDepsDir}/toolchains/${cfg.toolchainName}
+    flazel_link ${cfg.bazelNixDeps}/libs ${nixDepsDir}/libs
   '';
 in
 coreDeriv.mkFlazelDerivation {

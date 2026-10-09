@@ -31,6 +31,12 @@ let
 
   primaryCfg = builtins.head toolchainList;
 
+  # flazel_link rather than `ln -sfn`, for the reason the helper's definition gives:
+  # this runs on every `nix develop` entry, and -f unlinks before it links, so each
+  # entry left these paths briefly absent while a concurrent bazel could be reading
+  # them. Per-entry rather than flazel_link_dir because a toolchain directory here is
+  # not a flat set of links: it holds rust/, cc/ and deps/ side by side, contributed by
+  # two different attribute sets.
   rustDepsSetup = ''
     mkdir -p ${nixDepsDir}/toolchains ${nixDepsDir}/libs
 
@@ -38,7 +44,7 @@ let
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
         mkdir -p ${nixDepsDir}/toolchains/${name}
-        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/rust ${nixDepsDir}/toolchains/${name}/rust
+        flazel_link ${cfg.bazelNixDeps}/toolchains/${name}/rust ${nixDepsDir}/toolchains/${name}/rust
       '') toolchains
     )}
 
@@ -46,8 +52,8 @@ let
     ${pkgs.lib.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: cfg: ''
         mkdir -p ${nixDepsDir}/toolchains/${name}
-        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/cc ${nixDepsDir}/toolchains/${name}/cc
-        ln -sfn ${cfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
+        flazel_link ${cfg.bazelNixDeps}/toolchains/${name}/cc ${nixDepsDir}/toolchains/${name}/cc
+        flazel_link ${cfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
       '') ccToolchains
     )}
 

@@ -74,17 +74,132 @@ rec {
       });
     in
     ''
-      # Create the deps dir with writable caches
-      rm -rf ${nixDepsDir}
+      # ${nixDepsDir} is SHARED STATE that bazel reads, and this setup runs on every
+      # `nix develop` entry -- including `nix develop --command bazel ...`, the form a
+      # consumer is told to use per command, so it routinely runs while another bazel
+      # invocation is starting.
+      #
+      # It used to `rm -rf` the directory and rebuild it. For the length of two
+      # recursive cache copies, every file a consumer's .bazelrc try-imports was
+      # ABSENT, and so was ${nixDepsDir}/libs. try-import accepts an absent file in
+      # silence exactly as it accepts an empty one, so a bazel start landing in that
+      # window lost its toolchain flags with no error and failed later somewhere
+      # unrelated -- as missing headers for libraries the toolchain names, which is
+      # how this was found.
+      #
+      # So nothing is deleted wholesale, and every piece is replaced only when its
+      # content changes. These are all copies of immutable store paths, so "changes"
+      # is false except after a flake update: the usual entry now touches nothing,
+      # which also stops a large recursive copy from running every time.
+      #
+      # Defined here rather than in each language module because extraSetup is
+      # interpolated below and needs the same guarantees for the symlinks it writes.
+
+      # Replace $2 with the file $1, only if it differs, by rename (atomic within a
+      # filesystem) so a reader sees the old file whole or the new one whole.
+      flazel_put() {
+          if cmp -s "$1" "$2"; then
+              return 0
+          fi
+          _fz_tmp="$2.tmp.$$"
+          cp "$1" "$_fz_tmp"
+          chmod u+w "$_fz_tmp"
+          mv -f "$_fz_tmp" "$2"
+      }
+
+      # Point symlink $2 at $1. `ln -s` without -f fails when the link exists, which
+      # is why the `rm -rf` above was load-bearing; `ln -sfn` would unlink first and
+      # leave the path briefly absent, which is the same hazard in miniature. Skip
+      # when it already points there, otherwise rename a temporary link over it.
+      flazel_link() {
+          if [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then
+              return 0
+          fi
+          _fz_tmp="$2.tmp.$$"
+          ln -sfn "$1" "$_fz_tmp"
+          mv -Tf "$_fz_tmp" "$2"
+      }
+
+      # Make directory $1 hold exactly one symlink per remaining argument, named after
+      # that argument's basename. Later arguments win, which is how a consumer with
+      # several toolchains gets one unsuffixed name.
+      #
+      # It prunes as well as links because the `rm -rf` this replaced was what used to
+      # remove an entry the configuration had dropped, and a link into a store path that
+      # is later collected becomes dangling rather than merely unused. Pruning is the
+      # safe half of that wipe: it only removes what nothing in the current
+      # configuration names, so no reader can be mid-build against it without having
+      # already had its .bazelrc.nix replaced underneath it. Call it ONCE per directory
+      # with every source, never once per toolchain -- a second call would prune the
+      # first call's links.
+      flazel_link_dir() {
+          _fz_dest=$1
+          shift
+          mkdir -p "$_fz_dest"
+          _fz_want=" "
+          # Walked BACKWARDS, taking the first source seen for each basename, so the
+          # last argument wins while each destination is written at most once. Walking
+          # forwards and letting each source overwrite the previous reaches the same
+          # final state, but it rewrites every contested name on every entry and, in
+          # between, points that name at a toolchain that is not the one meant to win.
+          # Indexed through eval rather than a reversed list so a source path never
+          # goes through word splitting; the set of names already linked is held as a
+          # space-delimited string, so a BASENAME containing a space would defeat the
+          # membership test. Nix store path names cannot contain one, which is the only
+          # thing this is ever called with. The braces are mandatory (past $9, $10 parses as
+          # $1 followed by 0), and a brace opening a shell parameter expansion has to
+          # be escaped with a doubled quote here, since this is a Nix indented string
+          # and Nix would otherwise read it as its own interpolation. That applies to
+          # a comment too, which is why this sentence spells none of it literally.
+          _fz_i=$#
+          while [ "$_fz_i" -gt 0 ]; do
+              eval "_fz_src=\''${$_fz_i}"
+              _fz_i=$((_fz_i - 1))
+              _fz_name=$(basename "$_fz_src")
+              case "$_fz_want" in
+                  *" $_fz_name "*) continue ;;
+              esac
+              _fz_want="$_fz_want$_fz_name "
+              flazel_link "$_fz_src" "$_fz_dest/$_fz_name"
+          done
+          for _fz_have in "$_fz_dest"/*; do
+              # An empty directory leaves the glob unexpanded, so check it exists; -L
+              # too, since a dangling link is exactly what wants pruning.
+              [ -e "$_fz_have" ] || [ -L "$_fz_have" ] || continue
+              _fz_name=$(basename "$_fz_have")
+              case "$_fz_name" in
+                  # A concurrent entry's half-written link, waiting on its own rename.
+                  # Removing it would make that rename fail, which is the kind of race
+                  # this whole arrangement exists to remove. Its owner cleans it up.
+                  *.tmp.*) continue ;;
+              esac
+              case "$_fz_want" in
+                  *" $_fz_name "*) ;;
+                  *) rm -rf "$_fz_have" ;;
+              esac
+          done
+      }
+
       mkdir -p ${nixDepsDir}
-      cp -rL ${caches.bazelRepoCache} ${nixDepsDir}/repo-cache
-      cp -rL ${caches.bazelRegistryCache} ${nixDepsDir}/registry
-      chmod -R u+w ${nixDepsDir}/repo-cache ${nixDepsDir}/registry
+
+      # The caches are directories, so they cannot be swapped by a single rename.
+      # Gating them on which store paths they came from means the copy happens once
+      # per flake change rather than once per entry, and the brief window when it
+      # does run fails LOUDLY (bazel reports a missing repository cache) rather than
+      # silently dropping flags.
+      _fz_cache_stamp=${nixDepsDir}/.cache-stamp
+      _fz_cache_want="${caches.bazelRepoCache} ${caches.bazelRegistryCache}"
+      if [ "$(cat "$_fz_cache_stamp" 2>/dev/null)" != "$_fz_cache_want" ]; then
+          rm -rf ${nixDepsDir}/repo-cache ${nixDepsDir}/registry
+          cp -rL ${caches.bazelRepoCache} ${nixDepsDir}/repo-cache
+          cp -rL ${caches.bazelRegistryCache} ${nixDepsDir}/registry
+          chmod -R u+w ${nixDepsDir}/repo-cache ${nixDepsDir}/registry
+          printf '%s' "$_fz_cache_want" > "$_fz_cache_stamp"
+      fi
 
       # Framework bazelrc (override + non-BCR + toolchains). The build appends
       # the offline cache flags after this; the dev shell leaves it as-is.
-      cp ${bazelrc} ${nixDepsDir}/.bazelrc.nix
-      chmod u+w ${nixDepsDir}/.bazelrc.nix
+      flazel_put ${bazelrc} ${nixDepsDir}/.bazelrc.nix
       ${extraSetup}
     '';
 
