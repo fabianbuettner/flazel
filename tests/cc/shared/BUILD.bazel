@@ -1,0 +1,21 @@
+# A shared library and a binary that loads it at run time.
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_shared_library")
+
+cc_library(
+    name = "printer",
+    srcs = ["printer.cc"],
+    hdrs = ["printer.h"],
+)
+
+cc_shared_library(
+    name = "printer_shared",
+    shared_lib_name = "libprinter.so",
+    deps = [":printer"],
+)
+
+cc_binary(
+    name = "shared",
+    srcs = ["main.cc"],
+    dynamic_deps = [":printer_shared"],
+    deps = [":printer"],
+)

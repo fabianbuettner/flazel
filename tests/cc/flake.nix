@@ -38,6 +38,8 @@
             bin ? "hello",
             expect ? "flazel cc ok",
             runTest ? true,
+            # Shared libraries of the package the binary loads at run time.
+            sharedLibs ? [ ],
           }:
           flazel.lib.cc.mkDerivation {
             inherit
@@ -51,6 +53,10 @@
             installPhase = ''
               mkdir -p $out/bin
               cp -L bazel-bin/${pkg}/${bin} $out/bin/${bin}
+              ${pkgs.lib.concatMapStrings (lib: ''
+                mkdir -p $out/lib
+                cp -L bazel-bin/${pkg}/${lib} $out/lib/${lib}
+              '') sharedLibs}
 
               greeting=$(./bazel-bin/${pkg}/${bin})
               echo "binary output: $greeting"
@@ -111,6 +117,23 @@
           static = mkCcCheck {
             name = "flazel-cc-static";
             cfg = staticCfg;
+          };
+          # A cc_shared_library loaded at run time (supports_pic).
+          shared-gcc = mkCcCheck {
+            name = "flazel-cc-shared-gcc";
+            cfg = gccCfg;
+            pkg = "shared";
+            bin = "shared";
+            runTest = false;
+            sharedLibs = [ "libprinter.so" ];
+          };
+          shared-clang = mkCcCheck {
+            name = "flazel-cc-shared-clang";
+            cfg = clangCfg;
+            pkg = "shared";
+            bin = "shared";
+            runTest = false;
+            sharedLibs = [ "libprinter.so" ];
           };
           freestanding = mkCcCheck {
             name = "flazel-cc-freestanding";

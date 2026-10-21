@@ -353,6 +353,20 @@ def _impl(ctx):
                 with_features = [with_feature_set(features = ["dbg"])],
             )],
         ),
+        # -fPIC for objects linked into shared libraries; executables still link
+        # statically (no supports_dynamic_linker).
+        feature(name = "supports_pic", enabled = True),
+        feature(
+            name = "pic",
+            enabled = True,
+            flag_sets = [flag_set(
+                actions = _COMPILE_ACTIONS,
+                flag_groups = [flag_group(
+                    flags = ["-fPIC"],
+                    expand_if_available = "pic",
+                )],
+            )],
+        ),
     ] + (_clang_features() if ctx.attr.is_clang else [])
 
     return cc_common.create_cc_toolchain_config_info(
