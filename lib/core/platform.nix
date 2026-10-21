@@ -6,6 +6,7 @@
 let
   cpuMap = {
     x86_64 = "@platforms//cpu:x86_64";
+    i686 = "@platforms//cpu:x86_32";
     aarch64 = "@platforms//cpu:aarch64";
     mips64 = "@platforms//cpu:mips64";
     arm = "@platforms//cpu:arm";
@@ -18,6 +19,7 @@ let
     macos = "@platforms//os:macos";
     darwin = "@platforms//os:macos";
     ios = "@platforms//os:ios";
+    windows = "@platforms//os:windows";
   };
   supported = map: builtins.concatStringsSep ", " (builtins.attrNames map);
 in

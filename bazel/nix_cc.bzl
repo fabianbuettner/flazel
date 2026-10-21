@@ -35,6 +35,7 @@ load(":nix_common.bzl", "NIX_DEPS_DIR", "host_constraints", "init_extension", "p
 # Keep in sync with lib/core/platform.nix
 _CPU_CONSTRAINTS = {
     "x86_64": "@platforms//cpu:x86_64",
+    "i686": "@platforms//cpu:x86_32",
     "aarch64": "@platforms//cpu:aarch64",
     "mips64": "@platforms//cpu:mips64",
     "arm": "@platforms//cpu:arm",
@@ -49,6 +50,7 @@ _OS_CONSTRAINTS = {
     "macos": "@platforms//os:macos",
     "darwin": "@platforms//os:macos",
     "none": "@platforms//os:none",
+    "windows": "@platforms//os:windows",
 }
 
 # =============================================================================

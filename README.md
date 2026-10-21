@@ -10,7 +10,7 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 
 - **GCC or Clang**, any version nixpkgs has. Pick your linker: mold, lld, gold, bfd.
 - **Static** (musl), **dynamic** (glibc), or **bare metal** (no libc). Your choice, one parameter.
-- **Cross-compilation**: x86_64, aarch64, riscv32, riscv64, mips64, arm. All in one shell.
+- **Cross-compilation**: x86_64, aarch64, riscv32, riscv64, mips64, arm, and 32-bit Windows (mingw-w64). All in one shell.
 - **Nixpkgs libraries**: `nixpkgsLibs = { openssl = pkgs.openssl; }` in Nix, `@openssl//:openssl` in Bazel. Transitive deps handled.
 - **Hardened by default**: `_FORTIFY_SOURCE=3`, stack protectors, GLIBCXX assertions, split DWARF. Opt out per feature if you dare.
 - **Sanitizers**: `asan`, `ubsan`, `tsan` as `--features=` flags. Mutual exclusion enforced. ASan+UBSan layering works.
@@ -294,6 +294,33 @@ shell = flazel.lib.cc.mkDevShell {
 bazel build //...                                                # host
 bazel build //... --platforms=@local_config_cc_aarch64//:platform # aarch64-musl
 ```
+
+### Windows
+
+32-bit Windows executables and DLLs with mingw-w64, linked statically against
+the C and C++ runtimes, so they need nothing but Windows system DLLs:
+
+```nix
+mingw32 = pkgs.pkgsCross.mingw32;
+windowsCfg = flazel.lib.cc.mkConfig {
+  inherit pkgs;
+  toolchainName = "windows";
+  gcc = mingw32.buildPackages.gcc;
+  target = {
+    triple = "i686-w64-mingw32";
+    libc = mingw32.windows.mingw_w64;
+    libcName = "mingw";
+    threads = mingw32.windows.mcfgthreads;   # the compiler's thread runtime
+  };
+};
+```
+
+```bash
+bazel build //... --platforms=@local_config_cc_windows//:platform
+```
+
+Executables get `.exe`, a `cc_shared_library` becomes a `.dll`. They run under
+Wine (`tests/cc` runs its Windows check that way, headless).
 
 For Rust cross-targets that lack a real CC toolchain (e.g., iOS from a Linux host), declare a stub so Bazel's toolchain resolution doesn't complain:
 

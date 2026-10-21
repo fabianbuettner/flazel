@@ -10,6 +10,7 @@ each generated toolchain repo and instantiates the rule with the right attrs.
 load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "ACTION_NAMES")
 load(
     "@bazel_tools//tools/cpp:cc_toolchain_config_lib.bzl",
+    "artifact_name_pattern",
     "feature",
     "flag_group",
     "flag_set",
@@ -39,6 +40,34 @@ _LINK_ACTIONS = [
     ACTION_NAMES.cpp_link_executable,
     ACTION_NAMES.cpp_link_dynamic_library,
     ACTION_NAMES.cpp_link_nodeps_dynamic_library,
+]
+
+# -fPIC for objects linked into shared libraries; executables still link
+# statically (no supports_dynamic_linker). Not on Windows, where -fPIC only
+# warns.
+def _pic_features():
+    return [
+        feature(name = "supports_pic", enabled = True),
+        feature(
+            name = "pic",
+            enabled = True,
+            flag_sets = [flag_set(
+                actions = _COMPILE_ACTIONS,
+                flag_groups = [flag_group(
+                    flags = ["-fPIC"],
+                    expand_if_available = "pic",
+                )],
+            )],
+        ),
+    ]
+
+# Windows: .exe and .dll names.
+def _windows_features():
+    return [feature(name = "targets_windows", enabled = True)]
+
+_WINDOWS_ARTIFACT_NAMES = [
+    artifact_name_pattern(category_name = "executable", prefix = "", extension = ".exe"),
+    artifact_name_pattern(category_name = "dynamic_library", prefix = "", extension = ".dll"),
 ]
 
 # Clang-only features: emitted only for clang toolchains (see is_clang attr).
@@ -312,8 +341,9 @@ def _impl(ctx):
             )],
         ),
         feature(
+            # ELF only; for PE, gcc would call an unprefixed objcopy.
             name = "split_debug",
-            enabled = True,
+            enabled = not ctx.attr.targets_windows,
             flag_sets = [flag_set(
                 actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
                 flag_groups = [flag_group(flags = ["-gsplit-dwarf"])],
@@ -359,21 +389,7 @@ def _impl(ctx):
                 with_features = [with_feature_set(features = ["dbg"])],
             )],
         ),
-        # -fPIC for objects linked into shared libraries; executables still link
-        # statically (no supports_dynamic_linker).
-        feature(name = "supports_pic", enabled = True),
-        feature(
-            name = "pic",
-            enabled = True,
-            flag_sets = [flag_set(
-                actions = _COMPILE_ACTIONS,
-                flag_groups = [flag_group(
-                    flags = ["-fPIC"],
-                    expand_if_available = "pic",
-                )],
-            )],
-        ),
-    ] + (_clang_features() if ctx.attr.is_clang else [])
+    ] + (_windows_features() if ctx.attr.targets_windows else _pic_features()) + (_clang_features() if ctx.attr.is_clang else [])
 
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
@@ -401,6 +417,7 @@ def _impl(ctx):
             tool_path(name = "llvm-profdata", path = "bin/llvm-profdata"),
         ],
         features = features,
+        artifact_name_patterns = _WINDOWS_ARTIFACT_NAMES if ctx.attr.targets_windows else [],
     )
 
 cc_toolchain_config = rule(
@@ -420,6 +437,7 @@ cc_toolchain_config = rule(
         "target_cpu": attr.string(mandatory = True),
         "target_libc": attr.string(mandatory = True),
         "target_system_name": attr.string(mandatory = True),
+        "targets_windows": attr.bool(mandatory = True),
     },
     provides = [CcToolchainConfigInfo],
 )

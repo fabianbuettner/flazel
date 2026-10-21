@@ -41,6 +41,20 @@
 #     };
 #   };
 #
+# Usage (cross-compilation to 32-bit Windows, run under Wine):
+#   cfg = flazel.lib.cc.mkConfig {
+#     inherit pkgs;
+#     toolchainName = "mingw32";
+#     gcc = pkgs.pkgsCross.mingw32.buildPackages.gcc;
+#     target = {
+#       triple = "i686-w64-mingw32";
+#       libc = pkgs.pkgsCross.mingw32.windows.mingw_w64;
+#       libcName = "mingw";
+#       threads = pkgs.pkgsCross.mingw32.windows.mcfgthreads;  # the compiler's thread runtime
+#     };
+#   };
+# Windows binaries link the C and C++ runtimes statically.
+#
 # A no-libc build also wants the libc-dependent hardening off:
 #   --features=-stack_protector_strong (and avoid -c opt, whose fortify_source
 #   pulls libc __*_chk symbols). They emit calls a freestanding link cannot resolve.
@@ -89,7 +103,9 @@ let
   # Use provided gcc or default from buildPkgs
   # For Clang toolchains, gcc is still needed for libstdc++ headers
   effectiveGcc = if gcc != null then gcc else buildPkgs.gcc;
-  binutils = target.binutils or buildPkgs.binutils;
+  # A cross compiler's own binutils.
+  binutils =
+    target.binutils or (if isWindows then effectiveGcc.bintools.bintools else buildPkgs.binutils);
   gccVersion = effectiveGcc.version;
 
   # Clang-specific bindings
@@ -192,6 +208,11 @@ let
   parsedTriple = pkgs.lib.systems.parse.mkSystemFromString targetTriple;
   targetCpu = effectiveTarget.cpu or parsedTriple.cpu.name;
   targetOs = effectiveTarget.os or parsedTriple.kernel.name;
+  isWindows = targetOs == "windows";
+  # Thread runtime for Windows targets.
+  threads = effectiveTarget.threads or null;
+  # Its headers, which libstdc++'s gthr-default.h includes.
+  threadsDev = if threads != null then threads.dev or threads else null;
   libc = effectiveTarget.libc or null;
   libcDev = if libc != null then libc.dev else null;
   libcName = effectiveTarget.libcName or (if libc == null then "none" else "unknown");
@@ -238,7 +259,19 @@ let
   # Link flags - can be overridden via target.linkFlags
   # Clang on NixOS uses GCC's libstdc++ by default, so link flags reference gcc-lib
   defaultLinkFlags =
-    if isBaremetal then
+    if isWindows then
+      # Fully static: libgcc, libstdc++ and the thread runtime are linked in.
+      # The compiler wrapper supplies its own binutils, so no -B here.
+      ''
+        "-static",
+        "-L@DEPS@/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
+        "-L@DEPS@/gcc-lib/${targetTriple}/lib",
+        "-L@DEPS@/libc/lib",
+        ${if threads != null then ''"-L@DEPS@/threads/lib",'' else ""}
+        "-lstdc++",
+        "-no-canonical-prefixes",
+      ''
+    else if isBaremetal then
       ''
         "-nostdlib",
         "-static",
@@ -291,20 +324,40 @@ let
 
   # Include directories for libc (empty if bare metal)
   libcIncludeDirs =
-    if libcDev != null then
-      ''
-        "${libcDev}/include",
-      ''
-    else
-      "";
+    (
+      if libcDev != null then
+        ''
+          "${libcDev}/include",
+        ''
+      else
+        ""
+    )
+    + (
+      if threadsDev != null then
+        ''
+          "${threadsDev}/include",
+        ''
+      else
+        ""
+    );
 
   libcIsystemFlags =
-    if libcDev != null then
-      ''
-        "-isystem", "@DEPS@/libc-dev/include",
-      ''
-    else
-      "";
+    (
+      if libcDev != null then
+        ''
+          "-isystem", "@DEPS@/libc-dev/include",
+        ''
+      else
+        ""
+    )
+    + (
+      if threadsDev != null then
+        ''
+          "-isystem", "@DEPS@/threads-dev/include",
+        ''
+      else
+        ""
+    );
 
   fortifyIncludeDirs =
     if fortifyHeaders != null then
@@ -494,6 +547,7 @@ let
         cxx_standard = "${cxxStandard}",
         c_standard = "${cStandard}",
         freestanding = ${if freestanding then "True" else "False"},
+        targets_windows = ${if isWindows then "True" else "False"},
         is_clang = ${if isClang then "True" else "False"},
         lto_flag = "${if isClang then "-flto=thin" else "-flto=auto"}",
     )
@@ -554,6 +608,8 @@ let
     ${if libc != null then "ln -s ${libc} $out/libc" else ""}
     ${if libcDev != null then "ln -s ${libcDev} $out/libc-dev" else ""}
     ln -s ${if isClang then effectiveLlvmBintools else binutils} $out/binutils
+    ${if threads != null then "ln -s ${threads} $out/threads" else ""}
+    ${if threadsDev != null then "ln -s ${threadsDev} $out/threads-dev" else ""}
   '';
 
   # Nix store paths for toolchain and libs (read-only)
