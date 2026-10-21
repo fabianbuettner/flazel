@@ -11,6 +11,13 @@ local_path_override(
     path = "../..",
 )
 
+# Code compiled in an external repository (threads/).
+bazel_dep(name = "flazel-cc-test-dep")
+local_path_override(
+    module_name = "flazel-cc-test-dep",
+    path = "dep",
+)
+
 # CC toolchain. The flake symlinks a different cfg (gcc, clang, ...) as the
 # "default" toolchain per check, so a single declared name covers the matrix
 # without two toolchains colliding on the same x86_64-linux platform.

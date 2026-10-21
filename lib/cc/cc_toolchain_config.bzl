@@ -125,7 +125,9 @@ def _impl(ctx):
             enabled = True,
             flag_sets = [flag_set(
                 actions = _COMPILE_ACTIONS,
-                flag_groups = [flag_group(flags = _with_deps_root(ctx, ctx.attr.compile_isystem_flags))],
+                # mcfgthread's atomic.h includes __FILE__, an execroot-relative path;
+                # Bazel adds "-iquote ." only for the main repository.
+                flag_groups = [flag_group(flags = ["-iquote", "."] + _with_deps_root(ctx, ctx.attr.compile_isystem_flags))],
             )],
         ),
         feature(

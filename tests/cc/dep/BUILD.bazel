@@ -1,0 +1,8 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "counter",
+    srcs = ["counter.cc"],
+    hdrs = ["counter.h"],
+    visibility = ["//visibility:public"],
+)
