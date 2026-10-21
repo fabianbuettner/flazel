@@ -231,7 +231,8 @@ let
     else
       throw "flazel: ${effectiveGcc} has no nix-support/dynamic-linker; set target.linkFlags for this toolchain";
 
-  # Deps repo name (parameterized by toolchain name)
+  # Deps repo name (parameterized by toolchain name); flags refer to its
+  # path as @DEPS@ (see cc_toolchain_config.bzl).
   depsRepoName = "local_config_cc_${toolchainName}_deps";
 
   # Link flags - can be overridden via target.linkFlags
@@ -241,46 +242,46 @@ let
       ''
         "-nostdlib",
         "-static",
-        "-Lexternal/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
-        "-Bexternal/${depsRepoName}/binutils/bin",
+        "-L@DEPS@/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
+        "-B@DEPS@/binutils/bin",
         "-lgcc",
         "-no-canonical-prefixes",
       ''
     else if effectiveStatic then
       ''
         ${fuseLinkerFlag}"-static",
-        "-Lexternal/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
-        "-Lexternal/${depsRepoName}/gcc-lib/lib",
-        "-Lexternal/${depsRepoName}/libc/lib",
-        "-Bexternal/${depsRepoName}/binutils/bin",
+        "-L@DEPS@/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
+        "-L@DEPS@/gcc-lib/lib",
+        "-L@DEPS@/libc/lib",
+        "-B@DEPS@/binutils/bin",
         "-lstdc++",
         "-no-canonical-prefixes",
       ''
     else if isClang then
       ''
-        ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc-lib-shared/lib",
-        "-Lexternal/${depsRepoName}/gcc-lib/lib",
-        "-Lexternal/${depsRepoName}/libc/lib",
+        ${fuseLinkerFlag}"-L@DEPS@/gcc-lib-shared/lib",
+        "-L@DEPS@/gcc-lib/lib",
+        "-L@DEPS@/libc/lib",
         "-Wl,-rpath,${effectiveGcc.cc.lib or effectiveGcc.cc}/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
         "-Wl,--dynamic-linker=${dynamicLinker}",
-        "-Bexternal/${depsRepoName}/binutils/bin",
+        "-B@DEPS@/binutils/bin",
         "-lstdc++",
         "-lm",
         "-no-canonical-prefixes",
       ''
     else
       ''
-        ${fuseLinkerFlag}"-Lexternal/${depsRepoName}/gcc/lib/gcc/${targetTriple}/${gccVersion}",
-        "-Lexternal/${depsRepoName}/gcc-lib-shared/lib",
-        "-Lexternal/${depsRepoName}/gcc-lib/lib",
-        "-Lexternal/${depsRepoName}/libc/lib",
+        ${fuseLinkerFlag}"-L@DEPS@/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}",
+        "-L@DEPS@/gcc-lib-shared/lib",
+        "-L@DEPS@/gcc-lib/lib",
+        "-L@DEPS@/libc/lib",
         "-Wl,-rpath,${effectiveGcc.cc.lib or effectiveGcc.cc}/lib",
         "-Wl,-rpath,${effectiveGcc.cc}/lib",
         "-Wl,-rpath,${libc}/lib",
         "-Wl,--dynamic-linker=${dynamicLinker}",
-        "-Bexternal/${depsRepoName}/binutils/bin",
+        "-B@DEPS@/binutils/bin",
         "-lstdc++",
         "-lm",
         "-no-canonical-prefixes",
@@ -300,7 +301,7 @@ let
   libcIsystemFlags =
     if libcDev != null then
       ''
-        "-isystem", "external/${depsRepoName}/libc-dev/include",
+        "-isystem", "@DEPS@/libc-dev/include",
       ''
     else
       "";
@@ -451,17 +452,17 @@ let
   compileIsystemFlags =
     if isClang then
       ''
-        "-isystem", "external/${depsRepoName}/clang-lib/lib/clang/${clangMajorVersion}/include",
-        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}",
-        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
+        "-isystem", "@DEPS@/clang-lib/lib/clang/${clangMajorVersion}/include",
+        "-isystem", "@DEPS@/gcc-lib/include/c++/${gccVersion}",
+        "-isystem", "@DEPS@/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
         ${libcIsystemFlags}"-no-canonical-prefixes",
       ''
     else
       ''
-        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}",
-        "-isystem", "external/${depsRepoName}/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
-        "-isystem", "external/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include",
-        "-isystem", "external/${depsRepoName}/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
+        "-isystem", "@DEPS@/gcc-lib/include/c++/${gccVersion}",
+        "-isystem", "@DEPS@/gcc-lib/include/c++/${gccVersion}/${targetTriple}",
+        "-isystem", "@DEPS@/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include",
+        "-isystem", "@DEPS@/gcc-lib/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
         ${libcIsystemFlags}"-no-canonical-prefixes",
         "-fno-canonical-system-headers",
       '';
@@ -486,6 +487,7 @@ let
         compiler = "${compiler}",
         builtin_include_directories = [
     ${builtinIncludeDirs}    ],
+        deps = "@${depsRepoName}//:all",
         compile_isystem_flags = [
     ${compileIsystemFlags}    ],
         link_flags = [${linkFlags}],

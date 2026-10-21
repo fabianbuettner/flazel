@@ -83,6 +83,12 @@ def _clang_features():
         ),
     ]
 
+# @DEPS@ in flags is the deps repo's execroot path, known only here under
+# bzlmod.
+def _with_deps_root(ctx, flags):
+    root = ctx.attr.deps.label.workspace_root
+    return [flag.replace("@DEPS@", root) for flag in flags]
+
 def _impl(ctx):
     features = [
         feature(
@@ -90,7 +96,7 @@ def _impl(ctx):
             enabled = True,
             flag_sets = [flag_set(
                 actions = _COMPILE_ACTIONS,
-                flag_groups = [flag_group(flags = ctx.attr.compile_isystem_flags)],
+                flag_groups = [flag_group(flags = _with_deps_root(ctx, ctx.attr.compile_isystem_flags))],
             )],
         ),
         feature(
@@ -126,7 +132,7 @@ def _impl(ctx):
             enabled = True,
             flag_sets = [flag_set(
                 actions = _LINK_ACTIONS,
-                flag_groups = [flag_group(flags = ctx.attr.link_flags)],
+                flag_groups = [flag_group(flags = _with_deps_root(ctx, ctx.attr.link_flags))],
             )],
         ),
         feature(
@@ -405,6 +411,8 @@ cc_toolchain_config = rule(
         "compile_isystem_flags": attr.string_list(mandatory = True),
         "compiler": attr.string(mandatory = True),
         "cxx_standard": attr.string(mandatory = True),
+        # The toolchain's deps repo, for the @DEPS@ substitution.
+        "deps": attr.label(mandatory = True),
         "freestanding": attr.bool(mandatory = True),
         "is_clang": attr.bool(mandatory = True),
         "link_flags": attr.string_list(mandatory = True),
