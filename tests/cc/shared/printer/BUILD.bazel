@@ -1,0 +1,20 @@
+# The shared test's library, in a package of its own: on Windows the DLL
+# reaches the binary's directory only through copy_dynamic_libraries_to_binary.
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_shared_library")
+
+cc_library(
+    name = "printer",
+    srcs = ["printer.cc"],
+    hdrs = ["printer.h"],
+    visibility = ["//shared:__pkg__"],
+)
+
+cc_shared_library(
+    name = "printer_shared",
+    shared_lib_name = select({
+        "@platforms//os:windows": "printer.dll",
+        "//conditions:default": "libprinter.so",
+    }),
+    visibility = ["//shared:__pkg__"],
+    deps = [":printer"],
+)

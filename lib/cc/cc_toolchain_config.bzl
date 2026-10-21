@@ -61,9 +61,13 @@ def _pic_features():
         ),
     ]
 
-# Windows: .exe and .dll names.
+# Windows: .exe and .dll names, and DLLs copied beside the binaries
+# that load them.
 def _windows_features():
-    return [feature(name = "targets_windows", enabled = True)]
+    return [
+        feature(name = "targets_windows", enabled = True),
+        feature(name = "copy_dynamic_libraries_to_binary", enabled = True),
+    ]
 
 _WINDOWS_ARTIFACT_NAMES = [
     artifact_name_pattern(category_name = "executable", prefix = "", extension = ".exe"),

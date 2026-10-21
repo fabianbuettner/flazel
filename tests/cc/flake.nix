@@ -38,7 +38,8 @@
             bin ? "hello",
             expect ? "flazel cc ok",
             runTest ? true,
-            # Shared libraries of the package the binary loads at run time.
+            # Shared libraries the binary loads at run time, relative to its
+            # package's output directory.
             sharedLibs ? [ ],
             # Extra bazel flags, e.g. the platform of a cross toolchain.
             bazelFlags ? "",
@@ -62,7 +63,7 @@
               cp -L bazel-bin/${pkg}/${bin}${exe} $out/bin/${bin}${exe}
               ${pkgs.lib.concatMapStrings (lib: ''
                 mkdir -p $out/lib
-                cp -L bazel-bin/${pkg}/${lib} $out/lib/${lib}
+                cp -L bazel-bin/${pkg}/${lib} $out/lib/
               '') sharedLibs}
 
               greeting=$(${runner} ./bazel-bin/${pkg}/${bin}${exe} | tr -d '\r')
@@ -156,7 +157,7 @@
             pkg = "shared";
             bin = "shared";
             runTest = false;
-            sharedLibs = [ "libprinter.so" ];
+            sharedLibs = [ "printer/libprinter.so" ];
           };
           shared-clang = mkCcCheck {
             name = "flazel-cc-shared-clang";
@@ -164,11 +165,23 @@
             pkg = "shared";
             bin = "shared";
             runTest = false;
-            sharedLibs = [ "libprinter.so" ];
+            sharedLibs = [ "printer/libprinter.so" ];
           };
           mingw32 = mkCcCheck {
             name = "flazel-cc-mingw32";
             cfg = mingw32Cfg;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
+          # The DLL is copied beside the program, where Windows finds it.
+          shared-mingw32 = mkCcCheck {
+            name = "flazel-cc-shared-mingw32";
+            cfg = mingw32Cfg;
+            pkg = "shared";
+            bin = "shared";
+            runTest = false;
+            sharedLibs = [ "printer.dll" ];
             bazelFlags = "--platforms=@local_config_cc_default//:platform";
             exe = ".exe";
             runner = "${wineRunner}";
