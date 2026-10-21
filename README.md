@@ -10,7 +10,7 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 
 - **GCC or Clang**, any version nixpkgs has. Pick your linker: mold, lld, gold, bfd.
 - **Static** (musl), **dynamic** (glibc), or **bare metal** (no libc). Your choice, one parameter.
-- **Cross-compilation**: x86_64, aarch64, riscv32, riscv64, mips64, arm, and 32-bit Windows (mingw-w64). All in one shell.
+- **Cross-compilation**: x86_64, aarch64, riscv32, riscv64, mips64, arm, and 32- and 64-bit Windows (mingw-w64). All in one shell.
 - **Nixpkgs libraries**: `nixpkgsLibs = { openssl = pkgs.openssl; }` in Nix, `@openssl//:openssl` in Bazel. Transitive deps handled.
 - **Hardened by default**: `_FORTIFY_SOURCE=3`, stack protectors, GLIBCXX assertions, split DWARF. Opt out per feature if you dare.
 - **Sanitizers**: `asan`, `ubsan`, `tsan` as `--features=` flags. Mutual exclusion enforced. ASan+UBSan layering works.
@@ -297,8 +297,10 @@ bazel build //... --platforms=@local_config_cc_aarch64//:platform # aarch64-musl
 
 ### Windows
 
-32-bit Windows executables and DLLs with mingw-w64, linked statically against
-the C and C++ runtimes, so they need nothing but Windows system DLLs:
+Windows executables and DLLs with mingw-w64, linked statically against the C
+and C++ runtimes, so they need nothing but Windows system DLLs. 32-bit, from
+nixpkgs' `pkgsCross.mingw32`; for 64-bit use `pkgsCross.mingwW64` the same way
+(triple `x86_64-w64-mingw32`):
 
 ```nix
 mingw32 = pkgs.pkgsCross.mingw32;

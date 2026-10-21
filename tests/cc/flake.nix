@@ -81,18 +81,21 @@
             '';
           };
 
-        # 32-bit Windows (mingw-w64), the binaries run under Wine.
-        mingw32 = pkgs.pkgsCross.mingw32;
-        mingw32Cfg = flazel.lib.cc.mkConfig {
-          inherit pkgs;
-          gcc = mingw32.buildPackages.gcc;
-          target = {
-            triple = "i686-w64-mingw32";
-            libc = mingw32.windows.mingw_w64;
-            libcName = "mingw";
-            threads = mingw32.windows.mcfgthreads;
+        # Windows (mingw-w64) from a nixpkgs cross package set.
+        mkMingwCfg =
+          cross:
+          flazel.lib.cc.mkConfig {
+            inherit pkgs;
+            gcc = cross.buildPackages.gcc;
+            target = {
+              triple = cross.stdenv.hostPlatform.config;
+              libc = cross.windows.mingw_w64;
+              libcName = "mingw";
+              threads = cross.windows.mcfgthreads;
+            };
           };
-        };
+        mingw32Cfg = mkMingwCfg pkgs.pkgsCross.mingw32;
+        mingw64Cfg = mkMingwCfg pkgs.pkgsCross.mingwW64;
         # Runs a Windows executable under Wine: headless, throwaway prefix.
         wineRunner = pkgs.writeShellScript "wine-run" ''
           export WINEPREFIX="$TMPDIR/wine" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
@@ -188,6 +191,23 @@
             exe = ".exe";
             runner = "${wineRunner}";
           };
+          mingw64 = mkCcCheck {
+            name = "flazel-cc-mingw64";
+            cfg = mingw64Cfg;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
+          threads-mingw64 = mkCcCheck {
+            name = "flazel-cc-threads-mingw64";
+            cfg = mingw64Cfg;
+            pkg = "threads";
+            bin = "threads";
+            runTest = false;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
           freestanding = mkCcCheck {
             name = "flazel-cc-freestanding";
             cfg = freestandingCfg;
@@ -203,11 +223,15 @@
           inherit pkgs caches;
           toolchains.default = gccCfg;
         };
-        # nix develop .#mingw32, then
+        # nix develop .#mingw32 (or .#mingw64), then
         # `bazel build --platforms=@local_config_cc_default//:platform //hello:hello`.
         devShells.mingw32 = flazel.lib.cc.mkDevShell {
           inherit pkgs caches;
           toolchains.default = mingw32Cfg;
+        };
+        devShells.mingw64 = flazel.lib.cc.mkDevShell {
+          inherit pkgs caches;
+          toolchains.default = mingw64Cfg;
         };
       }
     );
