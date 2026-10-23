@@ -21,6 +21,8 @@
   bazelCommand,
   installPhase,
   bazel ? pkgs.bazel,
+  # See lib/core/derivation.nix.
+  lockFile ? null,
   # Bazel module name -> source path; see lib/core/derivation.nix.
   moduleOverrides ? { },
   cargoBazel ? null,
@@ -61,6 +63,7 @@ coreDeriv.mkFlazelDerivation {
     src
     caches
     bazel
+    lockFile
     moduleOverrides
     bazelCommand
     installPhase

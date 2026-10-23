@@ -22,10 +22,20 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        caches = flazel.lib.mkBcrCaches {
+        # The default Bazel and every other supported version, each with its own
+        # lockfile (nix run .#update-locks regenerates locks/).
+        variants = flazel.lib.bazelVariants {
           inherit pkgs;
-          lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+          root = ./.;
         };
+        otherVariants = removeAttrs variants [ "default" ];
+        cachesFor =
+          variant:
+          flazel.lib.mkBcrCaches {
+            inherit pkgs;
+            lockFile = flazel.lib.parseLockFile variant.lockFile;
+          };
+        caches = cachesFor variants.default;
 
         # Each check builds the same project hermetically with a different CC
         # toolchain symlinked in as "default", then runs the freshly built
@@ -47,17 +57,27 @@
             exe ? "",
             # Command that runs a built executable (e.g. wine for Windows).
             runner ? "",
+            variant ? variants.default,
           }:
+          let
+            # Native tests run under `bazel test`, which also exercises Bazel's
+            # test runner; a cross-compiled test runs through `runner` instead.
+            bazelTest = runTest && runner == "";
+          in
           flazel.lib.cc.mkDerivation {
             inherit
               pkgs
               name
               cfg
-              caches
               ;
+            caches = cachesFor variant;
+            inherit (variant) bazel;
+            lockFile = variant.lockOverride;
             src = ./.;
             bazelCommand =
-              "build ${bazelFlags} //${pkg}:${bin}" + (if runTest then " //${pkg}:${bin}_test" else "");
+              (if bazelTest then "test" else "build")
+              + " ${bazelFlags} //${pkg}:${bin}"
+              + (if runTest then " //${pkg}:${bin}_test" else "");
             installPhase = ''
               mkdir -p $out/bin
               cp -L bazel-bin/${pkg}/${bin}${exe} $out/bin/${bin}${exe}
@@ -72,7 +92,7 @@
                 echo "FAIL: unexpected binary output (got: $greeting)" >&2
                 exit 1
               }
-              ${pkgs.lib.optionalString runTest ''
+              ${pkgs.lib.optionalString (runTest && !bazelTest) ''
                 ${runner} ./bazel-bin/${pkg}/${bin}_test${exe} || {
                   echo "FAIL: cc_test returned non-zero" >&2
                   exit 1
@@ -151,10 +171,61 @@
             freestanding = true;
           };
         };
+
+        mkVersionShell =
+          variant:
+          flazel.lib.cc.mkDevShell {
+            inherit pkgs;
+            inherit (variant) bazel lockfileMode;
+            caches = cachesFor variant;
+            toolchains.default = gccCfg;
+          };
+
+        # A representative check per toolchain kind, for every extra Bazel version.
+        versionedChecks = pkgs.lib.concatMapAttrs (_: variant: {
+          "gcc${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-gcc${variant.suffix}";
+            cfg = gccCfg;
+            inherit variant;
+          };
+          "clang${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-clang${variant.suffix}";
+            cfg = clangCfg;
+            inherit variant;
+          };
+          "asan-clang${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-asan-clang${variant.suffix}";
+            cfg = clangCfg;
+            bazelFlags = "--features=asan";
+            inherit variant;
+          };
+          "static${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-static${variant.suffix}";
+            cfg = staticCfg;
+            inherit variant;
+          };
+          "headers${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-headers${variant.suffix}";
+            cfg = gccCfg;
+            pkg = "headers";
+            bin = "headers";
+            expect = "flazel headers ok";
+            runTest = false;
+            inherit variant;
+          };
+          "mingw64${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-mingw64${variant.suffix}";
+            cfg = mingw64Cfg;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+            inherit variant;
+          };
+        }) otherVariants;
       in
       {
         # nix flake check builds all; nix build .#checks.<system>.clang runs one.
-        checks = {
+        checks = versionedChecks // {
           gcc = mkCcCheck {
             name = "flazel-cc-gcc";
             cfg = gccCfg;
@@ -263,20 +334,29 @@
           };
         };
 
-        # Manual exploration: nix develop, then `bazel build //...`.
-        devShells.default = flazel.lib.cc.mkDevShell {
-          inherit pkgs caches;
-          toolchains.default = gccCfg;
+        # nix develop .#bazel8 (or another of otherVariants) runs that Bazel.
+        devShells = builtins.mapAttrs (_: mkVersionShell) otherVariants // {
+          # Manual exploration: nix develop, then `bazel build //...`.
+          default = flazel.lib.cc.mkDevShell {
+            inherit pkgs caches;
+            toolchains.default = gccCfg;
+          };
+          # nix develop .#mingw32 (or .#mingw64), then
+          # `bazel build --platforms=@local_config_cc_default//:platform //hello:hello`.
+          mingw32 = flazel.lib.cc.mkDevShell {
+            inherit pkgs caches;
+            toolchains.default = mingw32Cfg;
+          };
+          mingw64 = flazel.lib.cc.mkDevShell {
+            inherit pkgs caches;
+            toolchains.default = mingw64Cfg;
+          };
         };
-        # nix develop .#mingw32 (or .#mingw64), then
-        # `bazel build --platforms=@local_config_cc_default//:platform //hello:hello`.
-        devShells.mingw32 = flazel.lib.cc.mkDevShell {
-          inherit pkgs caches;
-          toolchains.default = mingw32Cfg;
-        };
-        devShells.mingw64 = flazel.lib.cc.mkDevShell {
-          inherit pkgs caches;
-          toolchains.default = mingw64Cfg;
+
+        # nix run .#update-locks regenerates locks/ (run in this directory).
+        apps.update-locks = flazel.lib.mkUpdateLocksApp {
+          inherit pkgs;
+          shells = builtins.attrNames otherVariants;
         };
       }
     );

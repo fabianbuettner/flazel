@@ -22,6 +22,8 @@
   installPhase,
   # Bazel package to use (defaults to latest stable)
   bazel ? pkgs.bazel,
+  # See lib/core/derivation.nix.
+  lockFile ? null,
   # Bazel module name -> source path; see lib/core/derivation.nix.
   moduleOverrides ? { },
   extraNativeBuildInputs ? [ ],
@@ -51,6 +53,7 @@ coreDeriv.mkFlazelDerivation {
     src
     caches
     bazel
+    lockFile
     moduleOverrides
     bazelCommand
     installPhase

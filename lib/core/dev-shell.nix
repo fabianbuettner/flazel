@@ -17,6 +17,9 @@
   bazel ? pkgs.bazel,
   # Bazel module name -> source path; see lib/core/derivation.nix.
   moduleOverrides ? { },
+  # --lockfile_mode for every command; bazelVariants sets "off" for a version
+  # whose lockfile lives under locks/, so the shell cannot rewrite the default.
+  lockfileMode ? null,
   # Language-specific toolchain registration lines for .bazelrc.nix
   toolchainLines ? "",
   # Optional: extra setup script (for language-specific toolchain/libs)
@@ -66,6 +69,7 @@ pkgs.mkShell {
         pkgs
         caches
         moduleOverrides
+        lockfileMode
         toolchainLines
         ;
       extraSetup = extraDepsSetup;

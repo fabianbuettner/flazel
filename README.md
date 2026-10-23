@@ -249,6 +249,53 @@ caches = flazel.lib.mkBcrCaches {
 Regenerate it alongside `MODULE.bazel.lock` after a dependency change; a stale
 manifest fails loudly (the offline build names the missing archive).
 
+## Bazel versions
+
+flazel works with Bazel 7, 8 and 9. `pkgs.bazel` is the default; pick another
+with the `bazel` argument of `mkDevShell` and `mkDerivation`:
+
+```nix
+devShells.default = flazel.lib.cc.mkDevShell {
+  inherit pkgs caches;
+  bazel = pkgs.bazel_9;
+  toolchains.default = cfg;
+};
+```
+
+- Headers of external repositories (every nixpkgs library) are system headers
+  on every version (`external_include_paths`). Bazel 9's `cc_library` passes
+  `includes` with `-I`, earlier versions with `-isystem`.
+- The repository cache lives outside the workspace, in
+  `${XDG_CACHE_HOME:-~/.cache}/flazel/repo-cache`, and `.bazelrc.nix` points
+  Bazel at it. Bazel 9 refuses a cache inside the workspace, so remove any
+  `--repository_cache` line from your own `.bazelrc`.
+- `MODULE.bazel.lock` is specific to the Bazel version that wrote it. A project
+  that checks several versions keeps one lockfile per extra version under
+  `locks/`:
+
+```nix
+variants = flazel.lib.bazelVariants { inherit pkgs; root = ./.; };
+checks = pkgs.lib.mapAttrs' (_: variant:
+  pkgs.lib.nameValuePair "build${variant.suffix}" (flazel.lib.cc.mkDerivation {
+    inherit pkgs cfg;
+    inherit (variant) bazel;
+    lockFile = variant.lockOverride;
+    caches = flazel.lib.mkBcrCaches {
+      inherit pkgs;
+      lockFile = flazel.lib.parseLockFile variant.lockFile;
+    };
+    # name, src, bazelCommand, installPhase as usual
+  })) variants;
+devShells = builtins.mapAttrs (_: variant: flazel.lib.cc.mkDevShell { /* bazel, caches as above */ }) variants;
+apps.update-locks = flazel.lib.mkUpdateLocksApp {
+  inherit pkgs;
+  shells = builtins.attrNames (removeAttrs variants [ "default" ]);
+};
+```
+
+`nix run .#update-locks` writes `locks/<version>.lock` with each version's
+Bazel; pass `archives = true` if the project commits `flazel-archives.json`.
+
 ## How it works
 
 | Layer | Tool | Job |

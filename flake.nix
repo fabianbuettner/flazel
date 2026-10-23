@@ -62,6 +62,11 @@
         # Utility functions
         getTransitiveDeps = import ./lib/core/utils.nix;
 
+        # Testing against several Bazel versions
+        bazelVersions = import ./lib/core/bazel-versions.nix;
+        bazelVariants = import ./lib/core/bazel-variants.nix;
+        mkUpdateLocksApp = import ./lib/core/update-locks.nix;
+
         # Generic derivation builders (auto-inject the flazel module override)
         mkFlazelDerivation = withFlazelModule coreDeriv.mkFlazelDerivation;
         mkFlazelDepsSetup = withFlazelModule coreDeriv.mkFlazelDepsSetup;

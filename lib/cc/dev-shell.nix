@@ -23,6 +23,8 @@
   bazel ? pkgs.bazel,
   # Bazel module name -> source path; see lib/core/derivation.nix.
   moduleOverrides ? { },
+  # See lib/core/dev-shell.nix.
+  lockfileMode ? null,
   extraPackages ? [ ],
   shellHook ? "",
 }:
@@ -96,6 +98,7 @@ coreDevShell {
     caches
     bazel
     moduleOverrides
+    lockfileMode
     ;
 
   toolchainLines = ccToolchainLines;
