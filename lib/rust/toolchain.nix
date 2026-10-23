@@ -151,19 +151,21 @@ let
         srcs = ["bin/rustfmt"],
     )
 
+    # allow_empty: these patterns differ per platform (.so, .dylib) or name
+    # optional tools, and Bazel 8 rejects any pattern that matches nothing.
     filegroup(
         name = "rustc_lib",
-        srcs = glob(["lib/rustlib/${execTriple}/lib/*.so", "lib/rustlib/${execTriple}/lib/*.dylib", "lib/*.so", "lib/*.dylib"]),
+        srcs = glob(["lib/rustlib/${execTriple}/lib/*.so", "lib/rustlib/${execTriple}/lib/*.dylib", "lib/*.so", "lib/*.dylib"], allow_empty = True),
     )
 
     filegroup(
         name = "llvm_cov",
-        srcs = glob(["lib/rustlib/${execTriple}/bin/llvm-cov"]),
+        srcs = glob(["lib/rustlib/${execTriple}/bin/llvm-cov"], allow_empty = True),
     )
 
     filegroup(
         name = "llvm_profdata",
-        srcs = glob(["lib/rustlib/${execTriple}/bin/llvm-profdata"]),
+        srcs = glob(["lib/rustlib/${execTriple}/bin/llvm-profdata"], allow_empty = True),
     )
 
     ${builtins.concatStringsSep "\n" (
@@ -180,7 +182,7 @@ let
               # *.rmeta: rust >= 1.95 ships std rlibs as metadata stubs with the
               # full metadata in sibling .rmeta files; without them rustc fails
               # with "only metadata stub found for rlib dependency std".
-              srcs = glob(["lib/rustlib/${target}/lib/*.rlib", "lib/rustlib/${target}/lib/*.rmeta", "lib/rustlib/${target}/lib/*.a", "lib/rustlib/${target}/lib/*.so", "lib/rustlib/${target}/lib/*.dylib"]),
+              srcs = glob(["lib/rustlib/${target}/lib/*.rlib", "lib/rustlib/${target}/lib/*.rmeta", "lib/rustlib/${target}/lib/*.a", "lib/rustlib/${target}/lib/*.so", "lib/rustlib/${target}/lib/*.dylib"], allow_empty = True),
           )
 
           rust_toolchain(
