@@ -33,8 +33,9 @@ let
   devPkg = pkg.dev or pkg;
   libPkg = archiveOutput pkg;
 
-  # Header glob shared by every generated cc_library (dynamic, header-only, static)
-  hdrsGlob = ''glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"], allow_empty = True)'';
+  # Header glob shared by every generated cc_library (dynamic, header-only, static).
+  # No extension filter: headers include .inc, .def and extensionless files.
+  hdrsGlob = ''glob(["include/**"], allow_empty = True)'';
 
   # Check if a package is a library (has a lib/ with archives).
   isLibrary =

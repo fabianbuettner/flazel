@@ -23,8 +23,10 @@ local_path_override(
 # without two toolchains colliding on the same x86_64-linux platform.
 nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
 nix_cc.toolchain(name = "default")
+nix_cc.package(name = "headers_probe")
 use_repo(
     nix_cc,
+    "headers_probe",
     "local_config_cc_default",
     "local_config_cc_default_deps",
 )

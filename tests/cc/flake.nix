@@ -106,8 +106,23 @@
           exec ${pkgs.wineWow64Packages.stable}/bin/wine "$@" 2>/dev/null
         '';
 
+        # A header-only package whose public header includes a .inc fragment and
+        # an extensionless header, as LLVM and the C++ standard library do.
+        headersProbe = pkgs.runCommand "flazel-headers-probe" { } ''
+          mkdir -p $out/include/probe
+          cat > $out/include/probe/probe.h <<'EOF'
+          #pragma once
+          #include "probe/message.inc"
+          #include "probe/Suffix"
+          #define PROBE_MESSAGE PROBE_PREFIX " " PROBE_SUFFIX
+          EOF
+          echo '#define PROBE_PREFIX "flazel headers"' > $out/include/probe/message.inc
+          echo '#define PROBE_SUFFIX "ok"' > $out/include/probe/Suffix
+        '';
+
         gccCfg = flazel.lib.cc.mkConfig {
           inherit pkgs;
+          nixpkgsLibs.headers_probe = headersProbe;
         };
 
         clangCfg = flazel.lib.cc.mkConfig {
@@ -220,6 +235,15 @@
             bazelFlags = "--platforms=@local_config_cc_default//:platform";
             exe = ".exe";
             runner = "${wineRunner}";
+          };
+          # Every file under a nixpkgs library's include/ reaches the sandbox.
+          headers = mkCcCheck {
+            name = "flazel-cc-headers";
+            cfg = gccCfg;
+            pkg = "headers";
+            bin = "headers";
+            expect = "flazel headers ok";
+            runTest = false;
           };
           freestanding = mkCcCheck {
             name = "flazel-cc-freestanding";
