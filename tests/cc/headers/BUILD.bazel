@@ -3,5 +3,11 @@ load("@rules_cc//cc:defs.bzl", "cc_binary")
 cc_binary(
     name = "headers",
     srcs = ["main.cc"],
+    # External headers are system headers: their warnings must not count.
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+    ],
     deps = ["@headers_probe"],
 )

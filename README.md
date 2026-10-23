@@ -353,6 +353,7 @@ Bazel `--features=` flags wired to compiler/linker options.
 
 | Feature | Flags | When |
 |---|---|---|
+| `external_include_paths` | `-isystem` for headers of external repositories | always |
 | `glibcxx_assertions` | `-D_GLIBCXX_ASSERTIONS` | always |
 | `fortify_source` | `-D_FORTIFY_SOURCE=3` | always |
 | `stack_protector_strong` | `-fstack-protector-strong` | always |

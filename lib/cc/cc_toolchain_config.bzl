@@ -126,6 +126,21 @@ def _with_deps_root(ctx, flags):
 def _impl(ctx):
     features = [
         feature(
+            # Headers of external repositories (every nixpkgs library) are system
+            # headers, on every Bazel version: Bazel 9's cc_library passes its
+            # `includes` with -I, earlier versions with -isystem.
+            name = "external_include_paths",
+            enabled = True,
+            flag_sets = [flag_set(
+                actions = _COMPILE_ACTIONS,
+                flag_groups = [flag_group(
+                    flags = ["-isystem", "%{external_include_paths}"],
+                    iterate_over = "external_include_paths",
+                    expand_if_available = "external_include_paths",
+                )],
+            )],
+        ),
+        feature(
             name = "compile_flags",
             enabled = True,
             flag_sets = [flag_set(

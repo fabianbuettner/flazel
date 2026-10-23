@@ -107,7 +107,8 @@
         '';
 
         # A header-only package whose public header includes a .inc fragment and
-        # an extensionless header, as LLVM and the C++ standard library do.
+        # an extensionless header, as LLVM and the C++ standard library do, and
+        # warns unless included as a system header.
         headersProbe = pkgs.runCommand "flazel-headers-probe" { } ''
           mkdir -p $out/include/probe
           cat > $out/include/probe/probe.h <<'EOF'
@@ -115,6 +116,7 @@
           #include "probe/message.inc"
           #include "probe/Suffix"
           #define PROBE_MESSAGE PROBE_PREFIX " " PROBE_SUFFIX
+          inline int probe_unused(int unused) { return 0; }
           EOF
           echo '#define PROBE_PREFIX "flazel headers"' > $out/include/probe/message.inc
           echo '#define PROBE_SUFFIX "ok"' > $out/include/probe/Suffix
