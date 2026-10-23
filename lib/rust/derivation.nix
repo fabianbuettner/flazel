@@ -21,7 +21,8 @@
   bazelCommand,
   installPhase,
   bazel ? pkgs.bazel,
-  flazelPath ? null,
+  # Bazel module name -> source path; see lib/core/derivation.nix.
+  moduleOverrides ? { },
   cargoBazel ? null,
   # CC toolchains for linking (rust binaries need a linker; on NixOS it must
   # come from Nix). Keyed by name, same shape as cc.mkDevShell's toolchains.
@@ -60,7 +61,7 @@ coreDeriv.mkFlazelDerivation {
     src
     caches
     bazel
-    flazelPath
+    moduleOverrides
     bazelCommand
     installPhase
     ;

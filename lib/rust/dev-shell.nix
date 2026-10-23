@@ -16,7 +16,8 @@
   # CC toolchains for linking (Rust needs a linker; on NixOS this must come from Nix)
   ccToolchains ? { },
   bazel ? pkgs.bazel,
-  flazelPath ? null,
+  # Bazel module name -> source path; see lib/core/derivation.nix.
+  moduleOverrides ? { },
   cargoBazel ? null,
   extraPackages ? [ ],
   shellHook ? "",
@@ -99,7 +100,7 @@ coreDevShell {
     pkgs
     caches
     bazel
-    flazelPath
+    moduleOverrides
     ;
 
   toolchainLines = rustToolchainLines;

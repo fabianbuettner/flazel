@@ -15,8 +15,8 @@
   caches,
   # Bazel package to use (defaults to latest stable)
   bazel ? pkgs.bazel,
-  # Path to flazel source (auto-injected, used for --override_module in .bazelrc.nix)
-  flazelPath ? null,
+  # Bazel module name -> source path; see lib/core/derivation.nix.
+  moduleOverrides ? { },
   # Language-specific toolchain registration lines for .bazelrc.nix
   toolchainLines ? "",
   # Optional: extra setup script (for language-specific toolchain/libs)
@@ -65,7 +65,7 @@ pkgs.mkShell {
       inherit
         pkgs
         caches
-        flazelPath
+        moduleOverrides
         toolchainLines
         ;
       extraSetup = extraDepsSetup;

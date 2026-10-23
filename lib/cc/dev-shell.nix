@@ -21,8 +21,8 @@
   caches,
   # Bazel package to use (defaults to latest stable)
   bazel ? pkgs.bazel,
-  # Path to flazel source (auto-injected, used for --override_module in .bazelrc.nix)
-  flazelPath ? null,
+  # Bazel module name -> source path; see lib/core/derivation.nix.
+  moduleOverrides ? { },
   extraPackages ? [ ],
   shellHook ? "",
 }:
@@ -95,7 +95,7 @@ coreDevShell {
     pkgs
     caches
     bazel
-    flazelPath
+    moduleOverrides
     ;
 
   toolchainLines = ccToolchainLines;

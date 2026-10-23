@@ -33,8 +33,19 @@
       rust-overlay,
     }:
     let
-      # Automatically inject flazelPath into functions that need it
-      withFlazelPath = fn: args: fn (args // { flazelPath = self.outPath; });
+      # Every builder overrides the flazel module with this source; a caller's
+      # own moduleOverrides come on top.
+      withFlazelModule =
+        fn: args:
+        fn (
+          args
+          // {
+            moduleOverrides = {
+              flazel = self.outPath;
+            }
+            // (args.moduleOverrides or { });
+          }
+        );
 
       # Import core modules once
       coreDeriv = import ./lib/core/derivation.nix;
@@ -51,12 +62,12 @@
         # Utility functions
         getTransitiveDeps = import ./lib/core/utils.nix;
 
-        # Generic derivation builders (auto-inject flazelPath)
-        mkFlazelDerivation = withFlazelPath coreDeriv.mkFlazelDerivation;
-        mkFlazelDepsSetup = withFlazelPath coreDeriv.mkFlazelDepsSetup;
+        # Generic derivation builders (auto-inject the flazel module override)
+        mkFlazelDerivation = withFlazelModule coreDeriv.mkFlazelDerivation;
+        mkFlazelDepsSetup = withFlazelModule coreDeriv.mkFlazelDepsSetup;
 
-        # Generic dev shell (auto-inject flazelPath)
-        mkFlazelDevShell = withFlazelPath (import ./lib/core/dev-shell.nix);
+        # Generic dev shell (auto-inject the flazel module override)
+        mkFlazelDevShell = withFlazelModule (import ./lib/core/dev-shell.nix);
       };
 
       # C/C++ specific library functions
@@ -67,11 +78,11 @@
         # CC library repo generation
         mkNixpkgsRepo = import ./lib/cc/nixpkgs-repo.nix;
 
-        # CC-specific derivation (auto-inject flazelPath)
-        mkDerivation = withFlazelPath (import ./lib/cc/derivation.nix);
+        # CC-specific derivation (auto-inject the flazel module override)
+        mkDerivation = withFlazelModule (import ./lib/cc/derivation.nix);
 
-        # CC-specific dev shell (auto-inject flazelPath)
-        mkDevShell = withFlazelPath (import ./lib/cc/dev-shell.nix);
+        # CC-specific dev shell (auto-inject the flazel module override)
+        mkDevShell = withFlazelModule (import ./lib/cc/dev-shell.nix);
       };
 
       # Rust specific library functions
@@ -82,11 +93,11 @@
         # Build cargo-bazel from source for crate_universe on NixOS
         mkCargoBazel = import ./lib/rust/cargo-bazel.nix;
 
-        # Rust-specific derivation (auto-inject flazelPath)
-        mkDerivation = withFlazelPath (import ./lib/rust/derivation.nix);
+        # Rust-specific derivation (auto-inject the flazel module override)
+        mkDerivation = withFlazelModule (import ./lib/rust/derivation.nix);
 
-        # Rust-specific dev shell (auto-inject flazelPath)
-        mkDevShell = withFlazelPath (import ./lib/rust/dev-shell.nix);
+        # Rust-specific dev shell (auto-inject the flazel module override)
+        mkDevShell = withFlazelModule (import ./lib/rust/dev-shell.nix);
       };
     in
     {

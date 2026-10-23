@@ -115,7 +115,6 @@ bazel test //...
     in {
       devShells.x86_64-linux.default = flazel.lib.rust.mkDevShell {
         inherit pkgs caches cargoBazel;
-        flazelPath = flazel.outPath;
         toolchains = { default = rustCfg; };
         ccToolchains = { default = ccCfg; };
       };
@@ -432,6 +431,20 @@ nonBcrDeps = [
 
 flazel fetches and extracts the archive and writes an `--override_module` flag to
 `.bazelrc.nix`.
+
+### Bazel modules from flake inputs (`moduleOverrides`)
+
+A Bazel module that a flake provides, such as a rule set packaged with its
+tools, is passed by store path. `mkDevShell` and `mkDerivation` turn each entry
+into an `--override_module` line of `.bazelrc.nix`, and the store path becomes
+an input of the build:
+
+```nix
+moduleOverrides = { mjolnir = mjolnir.packages.${system}.bazelModule; };
+```
+
+`MODULE.bazel` then names it without a version: `bazel_dep(name = "mjolnir")`.
+flazel reaches every consumer the same way.
 
 ### Repositories and offline archives (`extraArchives`)
 

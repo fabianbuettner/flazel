@@ -22,8 +22,8 @@
   installPhase,
   # Bazel package to use (defaults to latest stable)
   bazel ? pkgs.bazel,
-  # Path to flazel source (auto-injected, used for --override_module in .bazelrc.nix)
-  flazelPath ? null,
+  # Bazel module name -> source path; see lib/core/derivation.nix.
+  moduleOverrides ? { },
   extraNativeBuildInputs ? [ ],
   extraBuildInputs ? [ ],
 }:
@@ -51,7 +51,7 @@ coreDeriv.mkFlazelDerivation {
     src
     caches
     bazel
-    flazelPath
+    moduleOverrides
     bazelCommand
     installPhase
     ;
