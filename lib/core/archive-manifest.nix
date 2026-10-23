@@ -33,14 +33,44 @@ pkgs.writers.writePython3Bin "flazel-lock-archives" { } ''
   import sys
 
 
-  def bazel(*args):
-      res = subprocess.run(
+  def run_bazel(*args):
+      return subprocess.run(
           ["bazel", *args], capture_output=True, text=True, check=False
       )
+
+
+  def bazel(*args):
+      res = run_bazel(*args)
       if res.returncode != 0:
           sys.stderr.write(res.stderr)
           sys.exit(f"bazel {' '.join(args[:2])}... failed")
       return res.stdout
+
+
+  def show_visible_repos(base, chunk):
+      """show_repo for the (ext, name) pairs a module can see: those pairs,
+      their blocks and the extensions of the pairs it cannot see.
+
+      The graph also lists the repos of a non-root module's dev-dependency
+      extension usages, which Bazel ignores; those repos are not visible from
+      the module, are never created and have nothing to fetch.
+      """
+      hidden = set()
+      while chunk:
+          res = run_bazel(
+              "mod", "show_repo", *base, *["@" + name for _, name in chunk]
+          )
+          if res.returncode == 0:
+              return chunk, parse_blocks(res.stdout), hidden
+          invisible = set(
+              re.findall(r"No repo visible as (\S+) from", res.stderr)
+          )
+          if not invisible:
+              sys.stderr.write(res.stderr)
+              sys.exit("bazel mod show_repo... failed")
+          hidden |= {ext for ext, name in chunk if name in invisible}
+          chunk = [(ext, name) for ext, name in chunk if name not in invisible]
+      return [], [], hidden
 
 
   def parse_blocks(dump):
@@ -99,6 +129,7 @@ pkgs.writers.writePython3Bin "flazel-lock-archives" { } ''
 
   entries = {}
   prefixes = {}  # extension key -> canonical prefix
+  dev_usages = set()  # (module key, extension key) Bazel ignores
 
   # Pass 1: imported repos, per host module; blocks come back in argument
   # order, which associates each canonical name with its extension.
@@ -108,11 +139,10 @@ pkgs.writers.writePython3Bin "flazel-lock-archives" { } ''
           continue
       base = [] if mod_key == "<root>" else [f"--base_module={mod_key}"]
       for chunk_start in range(0, len(order), 200):
-          chunk = order[chunk_start:chunk_start + 200]
-          dump = bazel(
-              "mod", "show_repo", *base, *["@" + name for _, name in chunk]
+          chunk, blocks, hidden = show_visible_repos(
+              base, order[chunk_start:chunk_start + 200]
           )
-          blocks = parse_blocks(dump)
+          dev_usages |= {(mod_key, ext) for ext in hidden}
           if len(blocks) != len(chunk):
               sys.exit(
                   f"show_repo returned {len(blocks)} blocks "
@@ -120,16 +150,19 @@ pkgs.writers.writePython3Bin "flazel-lock-archives" { } ''
               )
           for (ext, _), block in zip(chunk, blocks):
               if block["canonical"]:
-                  # "rules_rust~~i2~rrc__x" -> "rules_rust~~i2~"
-                  prefixes[ext] = block["canonical"].rsplit("~", 1)[0] + "~"
+                  # "rules_rust~~i2~rrc__x" -> "rules_rust~~i2~"; Bazel 8
+                  # separates with "+" instead of "~".
+                  canonical = block["canonical"]
+                  cut = max(canonical.rfind("~"), canonical.rfind("+"))
+                  prefixes[ext] = canonical[:cut + 1]
               if block["url"] and block["sha256"]:
                   entries[block["sha256"]] = block["url"]
 
   # Pass 2: unimported repos (spokes) by constructed canonical name.
   spokes = []
-  for usages in modules.values():
+  for mod_key, usages in modules.items():
       for u in usages:
-          if not u["unused"]:
+          if not u["unused"] or (mod_key, u["ext"]) in dev_usages:
               continue
           prefix = prefixes.get(u["ext"])
           if prefix is None:

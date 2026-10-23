@@ -12,9 +12,9 @@ executable target for executable= rule attrs and aspects).
 def _nix_tool_impl(repository_ctx):
     """Creates a repository exposing a Nix tool under its binary name."""
 
-    # Extract base repo name (strip bzlmod prefix like "_main~_repo_rules~")
-    full_name = repository_ctx.name
-    base_name = full_name.split("~")[-1] if "~" in full_name else full_name
+    # Strip the bzlmod prefix ("_main~_repo_rules~" before Bazel 8,
+    # "+nix_tool+" after); an apparent name contains neither separator.
+    base_name = repository_ctx.name.replace("~", "+").split("+")[-1]
 
     # Binary to find in PATH (defaults to base repo name)
     binary_name = repository_ctx.attr.binary_name or base_name
