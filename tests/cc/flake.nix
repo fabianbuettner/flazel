@@ -161,6 +161,12 @@
             name = "flazel-cc-clang";
             cfg = clangCfg;
           };
+          # Clang reads its sanitizer ignorelist from the resource directory.
+          asan-clang = mkCcCheck {
+            name = "flazel-cc-asan-clang";
+            cfg = clangCfg;
+            bazelFlags = "--features=asan";
+          };
           static = mkCcCheck {
             name = "flazel-cc-static";
             cfg = staticCfg;

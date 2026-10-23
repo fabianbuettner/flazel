@@ -482,11 +482,13 @@ let
   );
 
   # Builtin include directories: Clang needs both its own resource headers
-  # and GCC's libstdc++ headers (Clang on NixOS uses libstdc++, not libc++)
+  # and GCC's libstdc++ headers (Clang on NixOS uses libstdc++, not libc++).
+  # share/ holds the sanitizer ignorelists Clang reads implicitly.
   builtinIncludeDirs =
     if isClang then
       ''
                   "${toolchainClang}/resource-root/include",
+                  "${toolchainClang}/resource-root/share",
                   "${effectiveGcc.cc}/include/c++/${gccVersion}",
                   "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
         ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}''
