@@ -77,6 +77,11 @@ coreDeriv.mkFlazelDerivation {
   ++ (if cfg.static then [ ] else builtins.attrValues cfg.nixpkgsLibs)
   ++ extraBuildInputs;
 
+  # The output holding the libraries, as nixpkgs-repo.nix links them: `lib`
+  # when split out, else `out` (for clang that would be the compiler).
   runtimeDependencies =
-    if cfg.static then [ ] else map (pkg: pkg.out or pkg) (builtins.attrValues cfg.nixpkgsLibs);
+    if cfg.static then
+      [ ]
+    else
+      map (pkg: pkg.lib or pkg.out or pkg) (builtins.attrValues cfg.nixpkgsLibs);
 }
