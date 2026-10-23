@@ -224,14 +224,13 @@ example: [`tests/rust/`](tests/rust/).
 ### Archives the lockfile cannot see
 
 > **When you need this:** only for **strict-offline** builds, i.e. the hermetic
-> `mkDerivation` path, which wires `--registry=file://` and makes the Nix-store
-> cache the *exclusive* source. A dev-shell build wires only
-> `--repository_cache` (a cache *with network fallback*), so a missing archive
-> is just fetched on a cache miss. If your CI builds in the dev shell and you
-> have no hermetic `mkDerivation` check, skip this whole section: omit
-> `extraArchives`, don't commit `flazel-archives.json`, and don't run
-> `flazel-lock-archives`. You lose only cold-cache pre-seeding, not
-> correctness.
+> `mkDerivation` path, where the sandbox has no network and the Nix-built
+> repository cache is the *exclusive* source. In the dev shell the same cache
+> has a network fallback, so a missing archive is just fetched on a cache miss.
+> If your CI builds in the dev shell and you have no hermetic `mkDerivation`
+> check, skip this whole section: omit `extraArchives`, don't commit
+> `flazel-archives.json`, and don't run `flazel-lock-archives`. You lose only
+> cold-cache pre-seeding, not correctness.
 
 Module extensions that declare `reproducible = True` are deliberately omitted
 from `MODULE.bazel.lock`, so their downloads (e.g. rules_rust's internal

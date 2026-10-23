@@ -147,19 +147,29 @@ rec {
       # per flake change rather than once per entry, and the brief window when it
       # does run fails LOUDLY (bazel reports a missing repository cache) rather than
       # silently dropping flags.
-      _fz_cache_stamp=${nixDepsDir}/.cache-stamp
-      _fz_cache_want="${caches.bazelRepoCache} ${caches.bazelRegistryCache}"
-      if [ "$(cat "$_fz_cache_stamp" 2>/dev/null)" != "$_fz_cache_want" ]; then
-          rm -rf ${nixDepsDir}/repo-cache ${nixDepsDir}/registry
-          cp -rL ${caches.bazelRepoCache} ${nixDepsDir}/repo-cache
-          cp -rL ${caches.bazelRegistryCache} ${nixDepsDir}/registry
-          chmod -R u+w ${nixDepsDir}/repo-cache ${nixDepsDir}/registry
-          printf '%s' "$_fz_cache_want" > "$_fz_cache_stamp"
+      # Layout of older flazel versions: an in-workspace repository cache and
+      # file:// registry copy.
+      rm -rf ${nixDepsDir}/repo-cache ${nixDepsDir}/registry ${nixDepsDir}/.cache-stamp
+
+      # Bazel writes into its repository cache and, from Bazel 9, refuses one
+      # inside the workspace. It is content-addressed, so one per user serves
+      # every project; each prefetched cache is merged into it once.
+      _fz_repo_cache="''${XDG_CACHE_HOME:-$HOME/.cache}/flazel/repo-cache"
+      _fz_seeded="$_fz_repo_cache/.seeded/$(basename ${caches.bazelRepoCache})"
+      if [ ! -e "$_fz_seeded" ]; then
+          mkdir -p "$_fz_repo_cache/.seeded"
+          cp -rnL ${caches.bazelRepoCache}/. "$_fz_repo_cache"
+          chmod -R u+w "$_fz_repo_cache"
+          touch "$_fz_seeded"
       fi
 
-      # Framework bazelrc (override + non-BCR + toolchains). The build appends
-      # the offline cache flags after this; the dev shell leaves it as-is.
-      flazel_put ${bazelrc} ${nixDepsDir}/.bazelrc.nix
+      # Framework bazelrc (override + non-BCR + toolchains) plus the repository
+      # cache, whose path is only known here.
+      _fz_rc="${nixDepsDir}/.bazelrc.nix.new.$$"
+      cat ${bazelrc} > "$_fz_rc"
+      echo "common --repository_cache=$_fz_repo_cache" >> "$_fz_rc"
+      flazel_put "$_fz_rc" ${nixDepsDir}/.bazelrc.nix
+      rm -f "$_fz_rc"
       ${extraSetup}
     '';
 
@@ -212,12 +222,6 @@ rec {
             ;
           extraSetup = extraDepsSetup;
         }}
-        # Point Bazel at pre-fetched caches (no network in Nix sandbox). These use
-        # the sandbox-absolute path, so they are appended here, not in the shared
-        # bazelrc content. --noenable_workspace lives in mkBazelrcContent so the
-        # dev shell gets it too.
-        echo "build --registry=file://$(pwd)/${nixDepsDir}/registry" >> ${nixDepsDir}/.bazelrc.nix
-        echo "build --repository_cache=$(pwd)/${nixDepsDir}/repo-cache" >> ${nixDepsDir}/.bazelrc.nix
         bazel --output_user_root=${bazelOutputBase} ${bazelCommand}
       '';
     };

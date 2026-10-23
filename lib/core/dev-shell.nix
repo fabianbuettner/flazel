@@ -44,11 +44,11 @@ pkgs.mkShell {
     # mkFlazelDepsSetup, the language extraSetup it runs, and the consumer
     # shellHook below all write ${nixDepsDir} with cwd-relative paths; without
     # this, entering the devshell from a subdirectory scatters ${nixDepsDir}
-    # there, and its half-materialized offline registry then breaks
-    # `bazel build //...` package loading. Only the dev shell needs this: the
-    # build derivation runs mkFlazelDepsSetup with its sandbox cwd already at the
-    # workspace root. Falls back to a no-op if no marker is found, and the
-    # restore makes the deps-dir location the only observable effect.
+    # there, which then breaks `bazel build //...` package loading. Only the dev
+    # shell needs this: the build derivation runs mkFlazelDepsSetup with its
+    # sandbox cwd already at the workspace root. Falls back to a no-op if no
+    # marker is found, and the restore makes the deps-dir location the only
+    # observable effect.
     _flazel_prev="$PWD"
     _flazel_root="$PWD"
     while [ "$_flazel_root" != / ] \

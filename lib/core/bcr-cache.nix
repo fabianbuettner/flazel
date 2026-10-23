@@ -25,8 +25,8 @@
 #     #     hardcoded URL (e.g. aspect_bazel_lib's bats, rules_python interpreters).
 #     extraArchives = [ { url = "..."; sha256 = "..."; } ];
 #   };
-#   # caches.bazelRepoCache - content-addressable archive cache (BCR + extraArchives)
-#   # caches.bazelRegistryCache - BCR registry metadata + overlay cache
+#   # caches.bazelRepoCache - content-addressable cache of every download: BCR
+#   #   registry files, module archives, patches, overlays, extraArchives
 #   # caches.nonBcrOverrideFlags - .bazelrc.nix --override_module lines
 #
 {
@@ -205,6 +205,13 @@
           h;
       urlHash = url: builtins.hashString "sha256" url;
 
+      registryFiles = builtins.filter (url: builtins.match "https://bcr.bazel.build/.*" url != null) (
+        builtins.attrNames (lockFile.registryFileHashes or { })
+      );
+
+      # Registry files are verified against the lockfile's hashes and looked up
+      # in this cache by them, so Bazel resolves modules without reading the
+      # registry at all.
       bazelRepoCache = pkgs.runCommand "bazel-repo-cache" { } ''
         mkdir -p $out/content_addressable/sha256
 
@@ -236,6 +243,38 @@
           ) modulesWithSources
         )}
 
+        # BCR registry files: bazel_registry.json, MODULE.bazel, source.json.
+        ${builtins.concatStringsSep "\n" (
+          map (
+            url:
+            let
+              hash = lockFile.registryFileHashes.${url};
+            in
+            ''add_to_cache "${
+              builtins.fetchurl {
+                inherit url;
+                sha256 = hash;
+              }
+            }" "${hash}" "${urlHash url}"''
+          ) registryFiles
+        )}
+
+        # Overlay files (a BUILD.bazel the registry layers onto sources that ship
+        # none), listed with their integrity in each module's source.json.
+        ${builtins.concatStringsSep "\n" (
+          map (
+            mod:
+            builtins.concatStringsSep "\n" (
+              builtins.attrValues (
+                builtins.mapAttrs (
+                  name: file:
+                  ''add_to_cache "${file}" "${toHex mod.overlay.${name}}" "${urlHash "${mod.baseUrl}/overlay/${name}"}"''
+                ) (fetchModuleFiles "overlay" mod)
+              )
+            )
+          ) modulesWithSources
+        )}
+
         # Module-extension http_archives (rust crate deps, etc.)
         ${builtins.concatStringsSep "\n" (
           map (
@@ -253,54 +292,8 @@
         )}
       '';
 
-      registryFiles = builtins.filter (url: builtins.match "https://bcr.bazel.build/.*" url != null) (
-        builtins.attrNames (lockFile.registryFileHashes or { })
-      );
-
-      bazelRegistryCache = pkgs.runCommand "bazel-registry-cache" { } ''
-        mkdir -p $out
-        ${builtins.concatStringsSep "\n" (
-          map (
-            url:
-            let
-              urlPath = builtins.replaceStrings [ "https://bcr.bazel.build/" ] [ "" ] url;
-              file = builtins.fetchurl {
-                inherit url;
-                sha256 = lockFile.registryFileHashes.${url};
-              };
-            in
-            ''
-              mkdir -p $out/$(dirname "${urlPath}")
-              cp ${file} $out/${urlPath}
-              chmod 644 $out/${urlPath}
-            ''
-          ) registryFiles
-        )}
-
-        # Overlay files (modules/<name>/<version>/overlay/<file>) are referenced
-        # by source.json but fetched lazily at repo-fetch time, so they never
-        # appear in registryFileHashes. Without them the offline build cannot
-        # construct overlaid repos (e.g. @zlib-ng~ fails: overlay/BUILD.bazel
-        # not found). Cache them from each module's source.json overlay map.
-        ${builtins.concatStringsSep "\n" (
-          map (
-            mod:
-            builtins.concatStringsSep "\n" (
-              builtins.attrValues (
-                builtins.mapAttrs (name: file: ''
-                  mkdir -p "$out/modules/${mod.name}/${mod.version}/overlay/$(dirname "${name}")"
-                  cp ${file} "$out/modules/${mod.name}/${mod.version}/overlay/${name}"
-                  chmod 644 "$out/modules/${mod.name}/${mod.version}/overlay/${name}"
-                '') (fetchModuleFiles "overlay" mod)
-              )
-            )
-          ) modulesWithSources
-        )}
-
-        find $out -type d -exec chmod 755 {} \;
-      '';
     in
     {
-      inherit bazelRepoCache bazelRegistryCache nonBcrOverrideFlags;
+      inherit bazelRepoCache nonBcrOverrideFlags;
     };
 }
