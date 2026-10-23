@@ -12,7 +12,7 @@ bzl_library(
     visibility = ["//visibility:public"],
     deps = [
         ":nix_common",
-        "@bazel_tools//tools/build_defs/cc:action_names",
+        "@rules_cc//cc:action_names_bzl",
     ],
 )
 

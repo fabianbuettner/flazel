@@ -180,6 +180,9 @@ def _stub_cc_cross_repo_impl(repository_ctx):
     exec_cpu, exec_os = host_constraints(repository_ctx)
 
     repository_ctx.file("cc_toolchain_config.bzl", """\
+load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_cc//cc/toolchains:cc_toolchain_config_info.bzl", "CcToolchainConfigInfo")
+
 def _impl(ctx):
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
