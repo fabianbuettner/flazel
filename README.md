@@ -14,7 +14,7 @@ One `nix develop` and you have a hermetic compiler, linker, and libc. One `bazel
 - **Nixpkgs libraries**: `nixpkgsLibs = { openssl = pkgs.openssl; }` in Nix, `@openssl//:openssl` in Bazel. Transitive deps handled.
 - **Hardened by default**: `_FORTIFY_SOURCE=3`, stack protectors, GLIBCXX assertions, split DWARF. Opt out per feature if you dare.
 - **Sanitizers**: `asan`, `ubsan`, `tsan` as `--features=` flags. Mutual exclusion enforced. ASan+UBSan layering works.
-- **Clang extras**: `layering_check`, `module_maps`, `parse_headers`. Find your missing `deps` before CI does.
+- **Header checks**: `layering_check` (clang) and `parse_headers` (clang, GCC 15+). Find your missing `deps` and non-self-contained headers before CI does.
 - **Build tuning**: `thin_lto`, `gc_sections`, `hidden_visibility`, `gdb_index`
 - **Coverage**: gcov and llvm-cov via `bazel coverage`
 
@@ -389,7 +389,74 @@ clangCfg = flazel.lib.cc.mkConfig {
 };
 ```
 
-Enables `layering_check`, `module_maps`, `parse_headers`, `template_diagnostics`.
+A clang toolchain adds `template_diagnostics` and the
+[header checks](#header-checks) `layering_check` and `parse_headers`.
+
+## Header checks
+
+`layering_check` needs clang. `parse_headers` needs clang or GCC 15 or later.
+Any other compiler does not offer the feature it cannot do, and Bazel ignores a
+request for a feature a toolchain does not have, silently. Both are opt-in: a
+build that requests neither compiles with exactly the command lines it would
+without them.
+
+```bazelrc
+build:clang-check --platforms=@local_config_cc_clang//:platform
+build:clang-check --features=layering_check
+build:clang-check --features=parse_headers
+build:clang-check --process_headers_in_dependencies
+```
+
+- `layering_check` fails a compile that includes a header from a target that
+  is not a direct dependency. It passes each target's module map and its
+  dependencies' (`-fmodule-name`, `-fmodule-map-file`,
+  `-fmodules-strict-decluse`). System headers belong to the toolchain's
+  `crosstool` module, generated from its builtin include directories.
+- `parse_headers` compiles every header in `hdrs` and `srcs` on its own
+  (`-xc++-header -fsyntax-only`), so a header that is not self-contained fails.
+  It parses with the same `-O`, `-D` and warning flags as the target's sources,
+  `_FORTIFY_SOURCE` under `-c opt` included. A target whose headers are C sets
+  `features = ["parse_headers_as_c"]`, which parses them with `-xc-header` and
+  the C standard instead of the C++ one.
+- `--process_headers_in_dependencies` is what makes `bazel build` run the
+  header-parse actions, for the requested targets and everything they depend
+  on. Without it `parse_headers` creates the actions and nothing requests them,
+  on Bazel 7, 8 and 9 alike.
+- `module_maps` is enabled whenever the toolchain is clang, as in rules_cc's
+  own clang toolchain. It adds no flag; it has Bazel write a `.cppmap` per
+  target, which the two features above read.
+
+On GCC, `parse_headers` also passes `-Wno-pragma-once-outside-header`: GCC
+reports `#pragma once` in the header it parses as the main file. GCC 14 and
+earlier cannot silence that, which is why they do not offer `parse_headers`.
+On clang it passes `-Wno-unused-command-line-argument` for the `-c` Bazel
+gives every compile, which `-fsyntax-only` leaves unused.
+
+Headers of nixpkgs libraries are not parsed: their generated packages set
+`features = ["-parse_headers"]`, since many of them are meant to be included
+only through an umbrella header. Repositories flazel does not generate, such
+as BCR modules, are parsed under `--process_headers_in_dependencies` like your
+own code, and some fail (headers that are templates, or that must not be
+included directly). Bazel has no per-repository `--features`; opt such a
+module out with a `REPO.bazel` patched in through its override:
+
+```starlark
+# MODULE.bazel
+single_version_override(
+    module_name = "zlib-ng",
+    patches = ["//third_party:zlib-ng-no-parse-headers.patch"],
+)
+```
+
+```diff
+--- /dev/null
++++ REPO.bazel
+@@ -0,0 +1 @@
++repo(features = ["-parse_headers"])
+```
+
+A module that already ships a `REPO.bazel` needs the `features` argument added
+to its `repo()` call instead.
 
 ## Selecting a toolchain
 
@@ -448,6 +515,22 @@ such file, and every C++ build then fails until you re-enter the dev shell. The
 host toolchain must be declared with `nix_cc.toolchain`, or builds that use it
 fail with a message naming the missing declaration.
 
+The `cc_toolchain` value is a choice of compiler, not something a machine has.
+Each toolchain therefore registers a test toolchain that runs its platform's
+tests on any execution platform with the same cpu and os, the host included.
+Bazel 9's default one would demand every target constraint of the execution
+platform, `cc_toolchain` with them, and find none. Exec tools are unaffected:
+they are still built with the host toolchain.
+
+- Like Bazel's own, it steps aside under `--use_target_platform_for_tests`.
+- It cannot see `--@bazel_tools//tools/test:incompatible_use_default_test_toolchain=false`:
+  Bazel declares that flag private, so no other repository can read it. With
+  the flag, tests still run on an execution platform with the target's cpu and
+  os, where Bazel's legacy toolchain would accept any.
+- The C environment is not a machine property either, so tests for a
+  freestanding toolchain whose cpu and os match the host now run on the host;
+  before, they failed toolchain resolution.
+
 To have a hand-written platform select a toolchain other than the host one, add
 that toolchain's `@local_config_cc_<name>//constraint:cc_toolchain` to its
 `constraint_values`, or inherit it:
@@ -487,6 +570,23 @@ did not select anything. After upgrading:
 - A Rust shell or derivation without `ccToolchains` no longer links with the
   system compiler: pass one in `ccToolchains`.
 
+`layering_check` and `parse_headers` used to be silently disabled: no
+toolchain had a module map or declared header parsing, so Bazel dropped both
+features without a word. After upgrading:
+
+- A build that requests them gets them for the first time, and may report
+  missing `deps` and headers that are not self-contained it never saw.
+- With `--process_headers_in_dependencies`, BCR modules' headers are parsed
+  too; opt out the ones that fail as described under [Header checks](#header-checks).
+- `parse_headers` works with GCC 15 and later too; earlier GCC ignores it.
+- A build that requests neither keeps its compile command lines. On clang,
+  each C/C++ target gains a `.cppmap` action and the toolchain gains files, so
+  the first build after upgrading recompiles.
+- On Bazel 9, `bazel test` under a toolchain's platform used to fail with
+  `No matching toolchains found for types:
+  @@bazel_tools//tools/test:default_test_toolchain_type`, and needed
+  `--extra_execution_platforms`. It now runs tests on the host; drop that flag.
+
 ## Toolchain features
 
 Bazel `--features=` flags wired to compiler/linker options.
@@ -520,6 +620,9 @@ Bazel `--features=` flags wired to compiler/linker options.
 | `hidden_visibility` | `-fvisibility=hidden` | |
 | `freestanding` | `-ffreestanding` | usually set via `target.freestanding = true` |
 | `template_diagnostics` | `-fdiagnostics-show-template-tree` | Clang only |
+| `layering_check` | `-fmodules-strict-decluse` and module maps | Clang only, see [Header checks](#header-checks) |
+| `parse_headers` | `-xc++-header -fsyntax-only` per header | Clang or GCC 15+, see [Header checks](#header-checks) |
+| `parse_headers_as_c` | `-xc-header` instead | per target, with `parse_headers` |
 
 `freestanding` is the compile-side counterpart to bare metal's `-nostdlib` link
 posture (`libc = null`): set `target.freestanding = true`. A no-libc build also

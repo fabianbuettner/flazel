@@ -10,10 +10,13 @@ each generated toolchain repo and instantiates the rule with the right attrs.
 load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
 load(
     "@rules_cc//cc:cc_toolchain_config_lib.bzl",
+    "action_config",
     "artifact_name_pattern",
     "feature",
+    "feature_set",
     "flag_group",
     "flag_set",
+    "tool",
     "tool_path",
     "with_feature_set",
 )
@@ -36,6 +39,37 @@ _CXX_ACTIONS = [
     ACTION_NAMES.cpp_module_compile,
     ACTION_NAMES.cpp_module_codegen,
     ACTION_NAMES.linkstamp_compile,
+]
+
+# The C++ actions, header parsing included unless it parses C
+# (parse_headers_as_c); every C++-only flag goes through this.
+def _cxx_flag_sets(flags):
+    return [
+        flag_set(
+            actions = [a for a in _CXX_ACTIONS if a != ACTION_NAMES.cpp_header_parsing],
+            flag_groups = [flag_group(flags = flags)],
+        ),
+        flag_set(
+            actions = [ACTION_NAMES.cpp_header_parsing],
+            flag_groups = [flag_group(flags = flags)],
+            with_features = [with_feature_set(not_features = ["parse_headers_as_c"])],
+        ),
+    ]
+
+# Header parsing gets the compile's -O and -D flags, as in rules_cc, whose opt
+# and dbg flags cover all_compile_actions (unix_cc_toolchain_config.bzl).
+_SOURCE_ACTIONS = [
+    ACTION_NAMES.c_compile,
+    ACTION_NAMES.cpp_compile,
+    ACTION_NAMES.cpp_header_parsing,
+]
+
+# Actions that read module maps, as in rules_cc's layering_check_features.
+_MODULE_MAP_ACTIONS = [
+    ACTION_NAMES.c_compile,
+    ACTION_NAMES.cpp_compile,
+    ACTION_NAMES.cpp_header_parsing,
+    ACTION_NAMES.cpp_module_compile,
 ]
 _LINK_ACTIONS = [
     ACTION_NAMES.cpp_link_executable,
@@ -80,42 +114,82 @@ def _clang_features():
     return [
         feature(
             name = "template_diagnostics",
-            flag_sets = [flag_set(
-                actions = _CXX_ACTIONS,
-                flag_groups = [flag_group(flags = [
-                    "-fdiagnostics-show-template-tree",
-                    "-ftemplate-backtrace-limit=0",
-                ])],
-            )],
+            flag_sets = _cxx_flag_sets([
+                "-fdiagnostics-show-template-tree",
+                "-ftemplate-backtrace-limit=0",
+            ]),
         ),
+        # As rules_cc's layering_check_features (unix_cc_toolchain_config.bzl).
+        # module_maps only has a .cppmap written per target; it adds no flag.
+        feature(name = "module_maps", enabled = True),
         feature(
-            name = "module_maps",
-            enabled = True,
+            name = "use_module_maps",
+            requires = [feature_set(features = ["module_maps"])],
             flag_sets = [flag_set(
-                actions = _COMPILE_ACTIONS,
+                actions = _MODULE_MAP_ACTIONS,
                 flag_groups = [flag_group(flags = [
+                    "-fmodule-name=%{module_name}",
                     "-fmodule-map-file=%{module_map_file}",
+                    # C++20 and later enable C++ modules, which Bazel's module
+                    # maps are not; rules_cc adds this for clang 14+.
+                    "-Xclang",
+                    "-fno-cxx-modules",
                 ])],
             )],
         ),
         feature(
             name = "layering_check",
+            implies = ["use_module_maps"],
             flag_sets = [flag_set(
-                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
-                flag_groups = [flag_group(flags = [
-                    "-fmodules-strict-decluse",
-                    "-Wprivate-header",
-                ])],
-            )],
-        ),
-        feature(
-            name = "parse_headers",
-            flag_sets = [flag_set(
-                actions = [ACTION_NAMES.cpp_header_parsing],
-                flag_groups = [flag_group(flags = ["-fsyntax-only"])],
+                actions = _MODULE_MAP_ACTIONS,
+                flag_groups = [
+                    flag_group(flags = [
+                        "-fmodules-strict-decluse",
+                        "-Wprivate-header",
+                    ]),
+                    flag_group(
+                        iterate_over = "dependent_module_map_files",
+                        flags = ["-fmodule-map-file=%{dependent_module_map_files}"],
+                    ),
+                ],
             )],
         ),
     ]
+
+# As rules_cc's parse_headers_support: a wrapper creates the .h.processed
+# that the compiler does not write under -fsyntax-only, and parse_headers_as_c
+# parses a target's headers as C.
+def _parse_headers(ctx):
+    if not ctx.attr.supports_header_parsing:
+        return [], []
+    flags = ["-fsyntax-only"] + ctx.attr.parse_headers_flags
+    action_configs = [action_config(
+        action_name = ACTION_NAMES.cpp_header_parsing,
+        tools = [tool(path = "bin/parse_headers")],
+        flag_sets = [
+            flag_set(
+                flag_groups = [flag_group(flags = ["-xc++-header"] + flags)],
+                with_features = [with_feature_set(not_features = ["parse_headers_as_c"])],
+            ),
+            flag_set(
+                flag_groups = [flag_group(flags = ["-xc-header"] + flags)],
+                with_features = [with_feature_set(features = ["parse_headers_as_c"])],
+            ),
+        ],
+        implies = [
+            "legacy_compile_flags",
+            "user_compile_flags",
+            "sysroot",
+            "unfiltered_compile_flags",
+            "compiler_input_flags",
+            "compiler_output_flags",
+        ],
+    )]
+    features = [
+        feature(name = "parse_headers"),
+        feature(name = "parse_headers_as_c"),
+    ]
+    return action_configs, features
 
 # @DEPS@ in flags is the deps repo's execroot path, known only here under
 # bzlmod.
@@ -124,6 +198,7 @@ def _with_deps_root(ctx, flags):
     return [flag.replace("@DEPS@", root) for flag in flags]
 
 def _impl(ctx):
+    parse_headers_action_configs, parse_headers_features = _parse_headers(ctx)
     features = [
         feature(
             # Headers of external repositories (every nixpkgs library) are system
@@ -165,18 +240,22 @@ def _impl(ctx):
         feature(
             name = "cxx_flags",
             enabled = True,
-            flag_sets = [flag_set(
-                actions = _CXX_ACTIONS,
-                flag_groups = [flag_group(flags = ["-std=" + ctx.attr.cxx_standard])],
-            )],
+            flag_sets = _cxx_flag_sets(["-std=" + ctx.attr.cxx_standard]),
         ),
         feature(
             name = "c_flags",
             enabled = True,
-            flag_sets = [flag_set(
-                actions = [ACTION_NAMES.c_compile],
-                flag_groups = [flag_group(flags = ["-std=" + ctx.attr.c_standard])],
-            )],
+            flag_sets = [
+                flag_set(
+                    actions = [ACTION_NAMES.c_compile],
+                    flag_groups = [flag_group(flags = ["-std=" + ctx.attr.c_standard])],
+                ),
+                flag_set(
+                    actions = [ACTION_NAMES.cpp_header_parsing],
+                    flag_groups = [flag_group(flags = ["-std=" + ctx.attr.c_standard])],
+                    with_features = [with_feature_set(features = ["parse_headers_as_c"])],
+                ),
+            ],
         ),
         feature(
             name = "link_flags",
@@ -189,14 +268,14 @@ def _impl(ctx):
         feature(
             name = "opt",
             flag_sets = [flag_set(
-                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                actions = _SOURCE_ACTIONS,
                 flag_groups = [flag_group(flags = ["-O2", "-DNDEBUG"])],
             )],
         ),
         feature(
             name = "dbg",
             flag_sets = [flag_set(
-                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                actions = _SOURCE_ACTIONS,
                 flag_groups = [flag_group(flags = ["-g", "-O0"])],
             )],
         ),
@@ -237,10 +316,7 @@ def _impl(ctx):
         feature(
             name = "glibcxx_assertions",
             enabled = True,
-            flag_sets = [flag_set(
-                actions = _CXX_ACTIONS,
-                flag_groups = [flag_group(flags = ["-D_GLIBCXX_ASSERTIONS"])],
-            )],
+            flag_sets = _cxx_flag_sets(["-D_GLIBCXX_ASSERTIONS"]),
         ),
         feature(
             # _FORTIFY_SOURCE is a no-op without optimization: at -O0 glibc
@@ -338,7 +414,7 @@ def _impl(ctx):
             enabled = True,
             flag_sets = [
                 flag_set(
-                    actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                    actions = _SOURCE_ACTIONS,
                     flag_groups = [flag_group(flags = [
                         "-ffunction-sections",
                         "-fdata-sections",
@@ -354,13 +430,10 @@ def _impl(ctx):
         ),
         feature(
             name = "hidden_visibility",
-            flag_sets = [flag_set(
-                actions = _CXX_ACTIONS,
-                flag_groups = [flag_group(flags = [
-                    "-fvisibility=hidden",
-                    "-fvisibility-inlines-hidden",
-                ])],
-            )],
+            flag_sets = _cxx_flag_sets([
+                "-fvisibility=hidden",
+                "-fvisibility-inlines-hidden",
+            ]),
         ),
         feature(
             # ELF only; for PE, gcc would call an unprefixed objcopy.
@@ -406,12 +479,12 @@ def _impl(ctx):
             name = "frame_pointer",
             enabled = True,
             flag_sets = [flag_set(
-                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                actions = _SOURCE_ACTIONS,
                 flag_groups = [flag_group(flags = ["-fno-omit-frame-pointer"])],
                 with_features = [with_feature_set(features = ["dbg"])],
             )],
         ),
-    ] + (_windows_features() if ctx.attr.targets_windows else _pic_features()) + (_clang_features() if ctx.attr.is_clang else [])
+    ] + (_windows_features() if ctx.attr.targets_windows else _pic_features()) + (_clang_features() if ctx.attr.is_clang else []) + parse_headers_features
 
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
@@ -439,6 +512,7 @@ def _impl(ctx):
             tool_path(name = "llvm-profdata", path = "bin/llvm-profdata"),
         ],
         features = features,
+        action_configs = parse_headers_action_configs,
         artifact_name_patterns = _WINDOWS_ARTIFACT_NAMES if ctx.attr.targets_windows else [],
     )
 
@@ -456,9 +530,12 @@ cc_toolchain_config = rule(
         "is_clang": attr.bool(mandatory = True),
         "link_flags": attr.string_list(mandatory = True),
         "lto_flag": attr.string(mandatory = True),
+        # Appended to the header-parse action's own flags.
+        "parse_headers_flags": attr.string_list(mandatory = True),
         "target_cpu": attr.string(mandatory = True),
         "target_libc": attr.string(mandatory = True),
         "target_system_name": attr.string(mandatory = True),
+        "supports_header_parsing": attr.bool(mandatory = True),
         "targets_windows": attr.bool(mandatory = True),
     },
     provides = [CcToolchainConfigInfo],

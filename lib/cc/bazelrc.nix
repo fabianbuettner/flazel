@@ -63,9 +63,10 @@ in
   lines =
     # Never fall back to rules_cc's autodetected PATH compiler.
     "common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1\n"
-    + lib.concatMapStrings (
-      name: "build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain\n"
-    ) names
+    + lib.concatMapStrings (name: ''
+      build --extra_toolchains=@local_config_cc_${name}//:cc_toolchain
+      build --extra_toolchains=@local_config_cc_${name}//test:all
+    '') names
     + lib.optionalString (default != null) "build --platforms=@local_config_cc_${default}//:platform\n";
 
   # Runs after the core setup, which defines flazel_put.

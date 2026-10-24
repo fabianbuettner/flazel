@@ -33,6 +33,10 @@ let
   devPkg = pkg.dev or pkg;
   libPkg = archiveOutput pkg;
 
+  # Installed headers are often not self-contained (harfbuzz's "Include <hb.h>
+  # instead"), and not this build's to check.
+  packageDecl = ''package(default_visibility = ["//visibility:public"], features = ["-parse_headers"])'';
+
   # Header glob shared by every generated cc_library (dynamic, header-only, static).
   # No extension filter: headers include .inc, .def and extensionless files.
   hdrsGlob = ''glob(["include/**"], allow_empty = True)'';
@@ -63,7 +67,7 @@ let
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
     load(":shared_libs.bzl", "SHARED_LIB_PATTERNS")
 
-    package(default_visibility = ["//visibility:public"])
+    ${packageDecl}
 
     cc_library(
         name = "${name}",
@@ -141,7 +145,7 @@ let
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
     load("@rules_cc//cc:cc_import.bzl", "cc_import")
 
-    package(default_visibility = ["//visibility:public"])
+    ${packageDecl}
 
     cc_import(
         name = "${name}_archive",
@@ -160,7 +164,7 @@ let
       cat > $out/BUILD.bazel <<'HEADERONLY'
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
-    package(default_visibility = ["//visibility:public"])
+    ${packageDecl}
 
     cc_library(
         name = "${name}",

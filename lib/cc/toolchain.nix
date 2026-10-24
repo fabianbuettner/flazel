@@ -6,13 +6,13 @@
 # - Cross-compilation support via target parameter
 # - Configurable C/C++ standards
 # - Bazel repository generation for nixpkgs libraries
-# - Clang-only features: module_maps, layering_check, parse_headers
+# - layering_check (clang), parse_headers (clang, GCC 15+)
 #
 # Usage (native build with GCC):
 #   cfg = flazel.lib.cc.mkConfig {
 #     inherit pkgs;
 #     static = true;  # optional, defaults to false
-#     gcc = pkgs.pkgsStatic.gcc14;  # optional
+#     gcc = pkgs.pkgsStatic.gcc15;  # optional
 #     nixpkgsLibs = { openssl = pkgs.openssl; };
 #   };
 #
@@ -324,22 +324,8 @@ let
 
   # Include directories for libc (empty if bare metal)
   libcIncludeDirs =
-    (
-      if libcDev != null then
-        ''
-          "${libcDev}/include",
-        ''
-      else
-        ""
-    )
-    + (
-      if threadsDev != null then
-        ''
-          "${threadsDev}/include",
-        ''
-      else
-        ""
-    );
+    pkgs.lib.optional (libcDev != null) "${libcDev}/include"
+    ++ pkgs.lib.optional (threadsDev != null) "${threadsDev}/include";
 
   libcIsystemFlags =
     (
@@ -359,18 +345,7 @@ let
         ""
     );
 
-  fortifyIncludeDirs =
-    if fortifyHeaders != null then
-      ''
-        "${fortifyHeaders}/include",
-      ''
-    else
-      "";
-
-  # Format GCC wrapper include paths as Starlark list items
-  gccWrapperIncludeList = pkgs.lib.concatMapStrings (p: ''
-    "${p}",
-  '') gccWrapperIncludePaths;
+  fortifyIncludeDirs = pkgs.lib.optional (fortifyHeaders != null) "${fortifyHeaders}/include";
 
   # Bazel platform constraints
   cpuConstraint = platform.cpuConstraint targetCpu;
@@ -435,6 +410,35 @@ let
       exec "$REAL_GCOV" "$@"
     '';
 
+  # Header parsing passes -c, which clang reports unused under -fsyntax-only.
+  # GCC reports `#pragma once` in the parsed header instead, which only GCC 15
+  # can silence, so earlier GCC does not offer parse_headers at all.
+  supportsHeaderParsing = isClang || pkgs.lib.versionAtLeast gccVersion "15";
+  starlarkBool = b: if b then "True" else "False";
+  moduleMapAttr = pkgs.lib.optionalString isClang "\n    module_map = \":module.modulemap\",";
+  parseHeadersFlags =
+    if isClang then [ "-Wno-unused-command-line-argument" ] else [ "-Wno-pragma-once-outside-header" ];
+
+  # The cpp_header_parsing tool, as rules_cc's cc_wrapper.sh: the compiler
+  # writes no output under -fsyntax-only, and Bazel wants the .h.processed.
+  parseHeaders = pkgs.writeShellScript "parse_headers" ''
+    out=
+    next=
+    scan() {
+      if [ -n "$next" ]; then out=$1; next=; elif [ "$1" = -o ]; then next=1; fi
+    }
+    for arg in "$@"; do
+      case $arg in
+        @*) while IFS= read -r opt; do scan "$opt"; done <"''${arg#@}" ;;
+        *) scan "$arg" ;;
+      esac
+    done
+    "$(dirname "$0")/gcc" "$@" || exit
+    case $out in
+      *.h.processed) : >"$out" ;;
+    esac
+  '';
+
   ccToolchainBinaries = pkgs.runCommand "cc-toolchain-bin" { } (
     if isClang then
       ''
@@ -493,22 +497,41 @@ let
   # and GCC's libstdc++ headers (Clang on NixOS uses libstdc++, not libc++).
   # share/ holds the sanitizer ignorelists Clang reads implicitly.
   builtinIncludeDirs =
-    if isClang then
-      ''
-                  "${toolchainClang}/resource-root/include",
-                  "${toolchainClang}/resource-root/share",
-                  "${effectiveGcc.cc}/include/c++/${gccVersion}",
-                  "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
-        ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}''
-    else
-      ''
-                  "${effectiveGcc.cc}/include/c++/${gccVersion}",
-                  "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}",
-                  "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include",
-                  "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include-fixed",
-                  "${effectiveGcc.cc}/${targetTriple}/sys-include",
-                  "${effectiveGcc.cc}/${targetTriple}/include",
-        ${libcIncludeDirs}${fortifyIncludeDirs}${gccWrapperIncludeList}'';
+    (
+      if isClang then
+        [
+          "${toolchainClang}/resource-root/include"
+          "${toolchainClang}/resource-root/share"
+          "${effectiveGcc.cc}/include/c++/${gccVersion}"
+          "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}"
+        ]
+      else
+        [
+          "${effectiveGcc.cc}/include/c++/${gccVersion}"
+          "${effectiveGcc.cc}/include/c++/${gccVersion}/${targetTriple}"
+          "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include"
+          "${effectiveGcc.cc}/lib/gcc/${targetTriple}/${gccVersion}/include-fixed"
+          "${effectiveGcc.cc}/${targetTriple}/sys-include"
+          "${effectiveGcc.cc}/${targetTriple}/include"
+        ]
+    )
+    ++ libcIncludeDirs
+    ++ fortifyIncludeDirs
+    ++ gccWrapperIncludePaths;
+
+  # Every header of the builtin include directories, as rules_cc's
+  # generate_system_module_map.sh; layering_check accepts system includes by it.
+  systemModuleMap = pkgs.runCommand "module.modulemap" { } ''
+    {
+      echo 'module "crosstool" [system] {'
+      for dir in ${pkgs.lib.escapeShellArgs builtinIncludeDirs}; do
+        find -L "$dir" -type f 2>/dev/null
+      done | LC_ALL=C sort -u | while read -r header; do
+        echo "  textual header \"$header\""
+      done
+      echo '}'
+    } > $out
+  '';
 
   # Sandbox -isystem flags: within Bazel's sandbox, headers are accessed
   # through the deps repo symlinks, not direct Nix store paths
@@ -530,7 +553,7 @@ let
         "-fno-canonical-system-headers",
       '';
 
-  # Clang-only features: module_maps, layering_check, parse_headers
+  # module_map: clang only (layering_check); header parsing: supportsHeaderParsing.
   ccToolchainBuild = pkgs.writeText "BUILD.bazel" ''
     load("@rules_cc//cc:defs.bzl", "cc_toolchain")
     load(":cc_toolchain_config.bzl", "cc_toolchain_config")
@@ -549,7 +572,7 @@ let
         target_libc = "${libcName}",
         compiler = "${compiler}",
         builtin_include_directories = [
-    ${builtinIncludeDirs}    ],
+    ${pkgs.lib.concatMapStrings (dir: "        \"${dir}\",\n") builtinIncludeDirs}    ],
         deps = "@${depsRepoName}//:all",
         compile_isystem_flags = [
     ${compileIsystemFlags}    ],
@@ -560,6 +583,10 @@ let
         targets_windows = ${if isWindows then "True" else "False"},
         is_clang = ${if isClang then "True" else "False"},
         lto_flag = "${if isClang then "-flto=thin" else "-flto=auto"}",
+        parse_headers_flags = [${
+          pkgs.lib.concatMapStringsSep ", " (flag: "\"${flag}\"") parseHeadersFlags
+        }],
+        supports_header_parsing = ${starlarkBool supportsHeaderParsing},
     )
 
     cc_toolchain(
@@ -573,6 +600,7 @@ let
         objcopy_files = ":all_files",
         strip_files = ":all_files",
         toolchain_config = ":local_config_cc_toolchain_config",
+        supports_header_parsing = ${starlarkBool supportsHeaderParsing},${moduleMapAttr}
     )
 
     toolchain(
@@ -590,15 +618,42 @@ let
     )
   '';
 
+  # Bazel 9's default test toolchain wants every target constraint on the exec
+  # platform, cc_toolchain too, which names a compiler, not a machine. This one
+  # wants the target's cpu and os only. Dropped before Bazel 9 (nix_cc.bzl).
+  testToolchainBuild = pkgs.writeText "BUILD.bazel" ''
+    package(default_visibility = ["//visibility:public"])
+
+    # Off under --use_target_platform_for_tests, as Bazel's default test
+    # toolchain. Its other switch, incompatible_use_default_test_toolchain, is
+    # private to @bazel_tools, so no config_setting here can read it.
+    config_setting(
+        name = "use_default_test_toolchain",
+        values = {"use_target_platform_for_tests": "false"},
+    )
+
+    toolchain(
+        name = "test_toolchain",
+        exec_compatible_with = ["${cpuConstraint}", "${osConstraint}"],
+        target_compatible_with = ${targetConstraints},
+        target_settings = [":use_default_test_toolchain"],
+        toolchain = "@bazel_tools//tools/test:empty_toolchain",
+        toolchain_type = "@bazel_tools//tools/test:default_test_toolchain_type",
+    )
+  '';
+
   # Checked-in static rule (buildifier/parse covered); the BUILD below
   # instantiates it with this toolchain's dynamic values as attributes.
   ccToolchainConfigBzl = ./cc_toolchain_config.bzl;
 
   localConfigCc = pkgs.runCommand "local_config_cc" { } ''
-    mkdir -p $out/bin
+    mkdir -p $out/bin $out/test
     cp ${ccToolchainBuild} $out/BUILD.bazel
+    cp ${testToolchainBuild} $out/test/BUILD.bazel
     cp ${ccToolchainConfigBzl} $out/cc_toolchain_config.bzl
+    ${pkgs.lib.optionalString isClang "cp ${systemModuleMap} $out/module.modulemap"}
     cp -r ${ccToolchainBinaries}/bin/* $out/bin/
+    ln -s ${parseHeaders} $out/bin/parse_headers
   '';
 
   # Toolchain dependencies - conditionally include libc

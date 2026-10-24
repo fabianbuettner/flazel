@@ -1,5 +1,6 @@
 # Flazel CC integration test workspace
 load("@rules_cc//cc:defs.bzl", "cc_binary")
+load(":script_test.bzl", "script_test")
 
 # Prints its compiler, libc and zlib variant: what toolchain resolution picked.
 genrule(
@@ -44,3 +45,5 @@ platform(
     name = "inherits_clang",
     parents = ["@local_config_cc_clang//:platform"],
 )
+
+script_test(name = "script_test")

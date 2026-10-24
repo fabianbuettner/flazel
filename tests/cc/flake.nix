@@ -419,7 +419,7 @@
               fi
               grep -m1 -E 'Unable to find a CC toolchain|No matching toolchains found' $TMPDIR/err || true
               grep -qE 'Unable to find a CC toolchain using toolchain resolution|No matching toolchains found for types' $TMPDIR/err \
-                || fail "no toolchain-resolution error"
+                || { tail $TMPDIR/err; fail "no toolchain-resolution error"; }
               if grep -q 'cc_configure_extension' $TMPDIR/err; then
                 fail "rules_cc's autodetected toolchain took part"
               fi
@@ -588,6 +588,187 @@
           '';
         };
 
+        # layering_check and parse_headers under clang, and parse_headers under
+        # GCC, asserted from the actions aquery lists and from builds that must
+        # fail.
+        mkClangCheck =
+          variant:
+          mkShellCheck {
+            name = "clang-check";
+            inherit variant;
+            shell.toolchains = selectionToolchains;
+            script = ''
+              clang=--platforms=@local_config_cc_clang//:platform
+              layering=--features=layering_check
+              parse=(--features=parse_headers --process_headers_in_dependencies)
+              argv() { bazel aquery "$@" --output=jsonproto | jq -r '(.actions // [])[].arguments | join(" ")' | sort; }
+              must_fail() {
+                local want=$1
+                shift
+                if bazel build "$@" 2>$TMPDIR/err; then
+                  fail "built $*"
+                elif grep -qF "$want" $TMPDIR/err; then
+                  echo "fails as wanted: $want"
+                else
+                  grep -m3 error $TMPDIR/err || true
+                  fail "$* did not fail with: $want"
+                fi
+              }
+
+              # layering_check: module maps on the command line, a transitive
+              # include refused, a direct one accepted.
+              good=$(argv $clang $layering 'mnemonic("CppCompile", //clang_check:good)')
+              for flag in -fmodules-strict-decluse '-fmodule-name=//clang_check:good' \
+                '-fmodule-map-file=[^ ]*local_config_cc_clang/module.modulemap' \
+                '-fmodule-map-file=[^ ]*/clang_check/base.cppmap'; do
+                grep -q -- "$flag" <<<"$good" || fail "layering_check compile lacks $flag"
+              done
+              bazel build $clang $layering //clang_check:good || fail "layering_check refused a direct dependency"
+              must_fail "module //clang_check:undeclared does not depend on a module exporting 'clang_check/base.h'" \
+                $clang $layering //clang_check:undeclared
+
+              # parse_headers: a .h.processed per header, a header that is not
+              # self-contained refused.
+              bazel build $clang "''${parse[@]}" //clang_check:self_contained || fail "parse_headers refused a self-contained header"
+              [ -f bazel-bin/clang_check/_objs/self_contained/self_contained.h.processed ] \
+                || fail "no self_contained.h.processed"
+              must_fail "not_self_contained.h:3:8: error: use of undeclared identifier 'std'" \
+                $clang "''${parse[@]}" //clang_check:not_self_contained
+              # parse_headers_as_c parses a C header as C, with the C standard.
+              bazel build $clang "''${parse[@]}" //clang_check:c_header || fail "parse_headers_as_c refused a C header"
+              must_fail "c_only.h:4:45: error: cannot initialize return object of type 'int *'" \
+                $clang "''${parse[@]}" //clang_check:c_header_as_cxx
+              as_c=$(argv $clang "''${parse[@]}" 'mnemonic("CppCompile", //clang_check:c_header)')
+              grep -q -- '-xc-header .*-std=c17\|-std=c17.*-xc-header' <<<"$as_c" || fail "parse_headers_as_c lacks -xc-header or -std=c17"
+              if grep -q -- '-std=c++' <<<"$as_c"; then fail "parse_headers_as_c passes the C++ standard"; fi
+
+              # Header parsing under -c opt sees the compile's -O and -D flags,
+              # _FORTIFY_SOURCE included, and passes under -Werror.
+              actions=$(argv -c opt $clang "''${parse[@]}" 'mnemonic("CppCompile", //clang_check:base)')
+              defines() { { grep -- "$1" <<<"$actions" || true; } | { grep -oE -- ' -(O[0-9a-z]*|[DU][^ ]*)' || true; } | sort; }
+              parsed=$(defines ' -fsyntax-only')
+              compiled=$(defines ' -c clang_check/base.cc -o [^ ]*base.pic.o')
+              echo "header parse: $(echo $parsed); compile: $(echo $compiled)"
+              grep -q -- '-D_FORTIFY_SOURCE=3' <<<"$parsed" || fail "header parse lacks _FORTIFY_SOURCE"
+              [ "$parsed" = "$compiled" ] || fail "header parse and compile differ in -O/-D flags"
+              bazel build -c opt $clang "''${parse[@]}" $layering --features=treat_warnings_as_errors \
+                //clang_check:base //clang_check:good //clang_check:self_contained \
+                || fail "header parsing failed under -c opt and -Werror"
+
+              # A nixpkgs library's headers are not parsed, while the project's are.
+              parsing=$(bazel aquery $clang "''${parse[@]}" \
+                'mnemonic("CppCompile", deps(//:probe) + //clang_check:self_contained)' --output=text)
+              grep -q 'self_contained\.h\.processed' <<<"$parsing" || fail "header parsing is off"
+              if grep -q 'zlib_clang/.*\.h\.processed' <<<"$parsing"; then
+                fail "zlib's headers are parsed"
+              fi
+              bazel build $clang "''${parse[@]}" $layering //:probe || fail "the probe failed with both features"
+
+              # Requesting nothing adds nothing: a plain compile equals one with
+              # every feature of this change off, module_maps included. (Identity
+              # with the previous flazel was measured once, outside this check.)
+              targets='mnemonic("CppCompile|CppLink|CppArchive", //clang_check/... + //:probe)'
+              off=(--features=-module_maps --features=-parse_headers --features=-layering_check)
+              for platform in $clang ""; do
+                plain=$(argv $platform "$targets")
+                [ "$plain" = "$(argv $platform "''${off[@]}" "$targets")" ] \
+                  || fail "''${platform:-gcc}: a plain build differs from one with the features off"
+                if grep -qE -- '-fmodule|-fno-cxx-modules|-fsyntax-only|-xc\+\+-header' <<<"$plain"; then
+                  fail "''${platform:-gcc}: a plain compile has a module or header-parse flag"
+                fi
+              done
+
+              # GCC 15+: parse_headers as under clang; layering_check, which
+              # needs clang modules, is ignored.
+              gcc_plain=$(argv 'mnemonic("CppCompile", //clang_check/...)')
+              [ "$gcc_plain" = "$(argv $layering 'mnemonic("CppCompile", //clang_check/...)')" ] \
+                || fail "GCC compiles changed under layering_check"
+              bazel build $layering //clang_check:undeclared || fail "GCC enforced layering_check"
+              bazel build "''${parse[@]}" //clang_check:self_contained || fail "GCC refused a self-contained header"
+              [ -f bazel-bin/clang_check/_objs/self_contained/self_contained.h.processed ] \
+                || fail "GCC: no self_contained.h.processed"
+              must_fail "not_self_contained.h:3:13: error:" \
+                "''${parse[@]}" //clang_check:not_self_contained
+              bazel build "''${parse[@]}" //clang_check:c_header || fail "GCC parse_headers_as_c refused a C header"
+              bazel build "''${parse[@]}" --features=hidden_visibility --features=treat_warnings_as_errors \
+                //clang_check:c_header || fail "GCC parse_headers_as_c got a C++-only flag"
+              must_fail "c_only.h:4:45: error: invalid conversion from 'void*' to 'int*'" \
+                "''${parse[@]}" //clang_check:c_header_as_cxx
+              actions=$(argv -c opt "''${parse[@]}" 'mnemonic("CppCompile", //clang_check:base)')
+              parsed=$(defines ' -fsyntax-only')
+              compiled=$(defines ' -c clang_check/base.cc -o [^ ]*base.pic.o')
+              echo "GCC header parse: $(echo $parsed); compile: $(echo $compiled)"
+              grep -q -- '-D_FORTIFY_SOURCE=3' <<<"$parsed" || fail "GCC header parse lacks _FORTIFY_SOURCE"
+              [ "$parsed" = "$compiled" ] || fail "GCC header parse and compile differ in -O/-D flags"
+              bazel build -c opt "''${parse[@]}" --features=treat_warnings_as_errors \
+                //clang_check:base //clang_check:good //clang_check:self_contained \
+                || fail "GCC header parsing failed under -c opt and -Werror"
+            '';
+          };
+
+        # GCC 14 cannot parse a #pragma once header cleanly, so its toolchain
+        # does not offer parse_headers, and requesting it changes nothing.
+        mkGcc14Check =
+          variant:
+          mkShellCheck {
+            name = "gcc14-no-parse-headers";
+            inherit variant;
+            shell.toolchains.default = flazel.lib.cc.mkConfig {
+              inherit pkgs;
+              gcc = pkgs.gcc14;
+            };
+            script = ''
+              parse=(--features=parse_headers --process_headers_in_dependencies)
+              argv() { bazel aquery "$@" --output=jsonproto | jq -r '(.actions // [])[].arguments | join(" ")' | sort; }
+              echo "compiler: $(.nix-bazel-deps/toolchains/default/cc/bin/gcc --version | head -1)"
+              bazel query --output=build @local_config_cc_default//:local_config_cc_toolchain \
+                | grep -q 'supports_header_parsing = False' || fail "the GCC 14 toolchain declares header parsing"
+              targets='mnemonic("CppCompile", //clang_check/...)'
+              requested=$(argv "''${parse[@]}" "$targets")
+              [ "$requested" = "$(argv "$targets")" ] || fail "parse_headers changed GCC 14 compiles"
+              if grep -q -- '-fsyntax-only' <<<"$requested"; then fail "GCC 14 has a header-parse action"; fi
+              bazel build "''${parse[@]}" //clang_check:self_contained //clang_check:not_self_contained \
+                || fail "GCC 14 parsed headers"
+              if [ -e bazel-bin/clang_check/_objs/self_contained/self_contained.h.processed ]; then
+                fail "GCC 14 wrote a .h.processed"
+              fi
+            '';
+          };
+
+        # Tests under a toolchain's platform run on the host, as do exec tools.
+        # Failing-first only on Bazel 9: earlier versions have no default test
+        # toolchain, and their tests ran on the host already.
+        mkTestToolchainCheck =
+          variant:
+          mkShellCheck {
+            name = "test-toolchain";
+            inherit variant;
+            shell.toolchains = selectionToolchains;
+            script = ''
+              clang=--platforms=@local_config_cc_clang//:platform
+              bazel test $clang //:script_test //hello:hello_test || fail "tests under the clang platform"
+              if bazel query @bazel_tools//tools/test:default_test_toolchain_type >/dev/null 2>&1; then
+                bazel cquery $clang //:script_test --toolchain_resolution_debug=default_test_toolchain_type \
+                  2>$TMPDIR/debug >/dev/null || true
+                grep -A1 'local_config_cc_clang//test:test_toolchain' $TMPDIR/debug || true
+                grep -A1 'local_config_cc_clang//test:test_toolchain .*is compatible' $TMPDIR/debug \
+                  | grep -q 'Compatible execution platform @@platforms//host' \
+                  || fail "the test toolchain did not resolve to the host"
+                bazel cquery $clang --use_target_platform_for_tests //:script_test \
+                  --toolchain_resolution_debug=default_test_toolchain_type 2>$TMPDIR/debug >/dev/null || true
+                grep -q 'Rejected toolchain @@[^ ]*local_config_cc_clang//test:test_toolchain; mismatching target_settings' \
+                  $TMPDIR/debug || fail "the test toolchain ignored --use_target_platform_for_tests"
+              fi
+              runner=$(bazel aquery $clang 'mnemonic("TestRunner", //:script_test)' --output=text \
+                | grep -m1 -o 'Execution platform: .*')
+              echo "test action: $runner"
+              [[ $runner =~ ^Execution\ platform:\ @+platforms//host:host$ ]] || fail "the test runs on $runner"
+              exec=$(compilers exec $clang 'mnemonic("CppCompile", //:probe_exec + deps(//:probe_exec))')
+              echo "exec tool compiler: $exec"
+              [ "$exec" = "local_config_cc_default/bin/gcc " ] || fail "exec tool compiled by $exec"
+            '';
+          };
+
         mkVersionShell =
           variant:
           flazel.lib.cc.mkDevShell {
@@ -630,6 +811,9 @@
             inherit variant;
           };
           "selection${variant.suffix}" = mkSelection variant;
+          "clang-check${variant.suffix}" = mkClangCheck variant;
+          "test-toolchain${variant.suffix}" = mkTestToolchainCheck variant;
+          "gcc14-no-parse-headers${variant.suffix}" = mkGcc14Check variant;
           "marker-flip${variant.suffix}" = mkMarkerFlip variant;
           "cross-only${variant.suffix}" = mkCrossOnly variant;
           "mingw64${variant.suffix}" = mkCcCheck {
@@ -736,6 +920,9 @@
           };
           # --platforms picks exactly that toolchain and its libraries.
           selection = mkSelection variants.default;
+          clang-check = mkClangCheck variants.default;
+          test-toolchain = mkTestToolchainCheck variants.default;
+          gcc14-no-parse-headers = mkGcc14Check variants.default;
           explicit-default = explicitDefault;
           subset-shell = subsetShell;
           cross-default = crossDefault;

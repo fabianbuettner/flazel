@@ -1,0 +1,52 @@
+# Fixtures for layering_check and parse_headers (flake.nix, clang-check).
+# undeclared, not_self_contained and c_header_as_cxx fail by design once those
+# features are on.
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "base",
+    srcs = ["base.cc"],
+    hdrs = ["base.h"],
+)
+
+cc_library(
+    name = "mid",
+    hdrs = ["mid.h"],
+    deps = [":base"],
+)
+
+# Includes base.h, from a direct dependency.
+cc_library(
+    name = "good",
+    srcs = ["good.cc"],
+    deps = [":base"],
+)
+
+# Includes base.h, which only a transitive dependency provides.
+cc_library(
+    name = "undeclared",
+    srcs = ["undeclared.cc"],
+    deps = [":mid"],
+)
+
+cc_library(
+    name = "self_contained",
+    hdrs = ["self_contained.h"],
+)
+
+cc_library(
+    name = "not_self_contained",
+    hdrs = ["not_self_contained.h"],
+)
+
+cc_library(
+    name = "c_header",
+    hdrs = ["c_only.h"],
+    features = ["parse_headers_as_c"],
+)
+
+# The same C header, parsed as C++.
+cc_library(
+    name = "c_header_as_cxx",
+    hdrs = ["c_only.h"],
+)
