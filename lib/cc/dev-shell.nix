@@ -28,6 +28,7 @@
   moduleOverrides ? { },
   # See lib/core/dev-shell.nix.
   lockfileMode ? null,
+  startupOptions ? [ ],
   extraPackages ? [ ],
   shellHook ? "",
 }:
@@ -105,6 +106,7 @@ coreDevShell {
     bazel
     moduleOverrides
     lockfileMode
+    startupOptions
     ;
 
   toolchainLines = ccSelection.lines;

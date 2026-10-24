@@ -76,6 +76,8 @@ rec {
       toolchainLines ? "",
       # Optional: additional setup for toolchain/libs (provided by language modules)
       extraSetup ? "",
+      # Startup options for every Bazel call in the workspace.
+      startupOptions,
     }:
     let
       bazelrc = pkgs.writeText "flazel-bazelrc.nix" (mkBazelrcContent {
@@ -182,6 +184,9 @@ rec {
       _fz_rc="${nixDepsDir}/.bazelrc.nix.new.$$"
       cat ${bazelrc} > "$_fz_rc"
       echo "common --repository_cache=$_fz_repo_cache" >> "$_fz_rc"
+      ${pkgs.lib.concatMapStrings (option: ''
+        echo "startup ${option}" >> "$_fz_rc"
+      '') startupOptions}
       flazel_put "$_fz_rc" ${nixDepsDir}/.bazelrc.nix
       rm -f "$_fz_rc"
       ${extraSetup}
@@ -212,7 +217,6 @@ rec {
       nativeBuildInputs ? [ ],
       buildInputs ? [ ],
       runtimeDependencies ? [ ],
-      bazelOutputBase ? "$TMPDIR/bazel-out",
     }:
     pkgs.stdenv.mkDerivation {
       inherit
@@ -244,12 +248,14 @@ rec {
             toolchainLines
             ;
           extraSetup = extraDepsSetup;
+          # Every Bazel call of the build, also from tools, keeps this root.
+          startupOptions = [ "--output_user_root=$TMPDIR/bazel" ];
         }}
         # nixpkgs' Bazel 8 and 9 keep "#!/usr/bin/env bash" in their embedded
         # tools (test-setup.sh, generate-xml.sh), which this sandbox cannot run.
         # patchShebangs keeps the mtimes Bazel checks its install base by.
-        patchShebangs --build "$(bazel --output_user_root=${bazelOutputBase} info install_base)/embedded_tools" >/dev/null
-        bazel --output_user_root=${bazelOutputBase} ${bazelCommand}
+        patchShebangs --build "$(bazel info install_base)/embedded_tools" >/dev/null
+        bazel ${bazelCommand}
       '';
     };
 }

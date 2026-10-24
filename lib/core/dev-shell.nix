@@ -24,6 +24,8 @@
   toolchainLines ? "",
   # Optional: extra setup script (for language-specific toolchain/libs)
   extraDepsSetup ? "",
+  # Startup options for the workspace; a user's shell keeps Bazel's own.
+  startupOptions ? [ ],
   packages ? [ ],
   shellHook ? "",
 }:
@@ -71,6 +73,7 @@ pkgs.mkShell {
         moduleOverrides
         lockfileMode
         toolchainLines
+        startupOptions
         ;
       extraSetup = extraDepsSetup;
     }}

@@ -233,13 +233,12 @@
                   inherit pkgs;
                   inherit (variant) bazel lockfileMode;
                   caches = cachesFor variant;
+                  startupOptions = [ "--output_user_root=$TMPDIR/bazel" ];
                 }
                 // shell
               )).shellHook
               }
-              root=$TMPDIR/bazel-out
-              bzl() { bazel --output_user_root=$root "$@"; }
-              patchShebangs --build "$(bzl info install_base)/embedded_tools" >/dev/null
+              patchShebangs --build "$(bazel info install_base)/embedded_tools" >/dev/null
               failed=0
               fail() {
                 echo "FAIL: $*" >&2
@@ -249,7 +248,7 @@
               compilers() {
                 local want=$1
                 shift
-                bzl aquery "$@" --output=text \
+                bazel aquery "$@" --output=text \
                   | awk -v RS= -v want="$want" '(want == "exec") == /Configuration: [^\n]*-exec/' \
                   | { grep -o 'local_config_cc_[a-z0-9_]*/bin/gcc' || true; } | sort -u | tr '\n' ' '
               }
@@ -280,9 +279,9 @@
                 used=$(compilers target "''${flags[@]}" 'mnemonic("CppCompile", //:probe)')
                 exec=$(compilers exec "''${flags[@]}" 'mnemonic("CppCompile", //:probe_exec + deps(//:probe_exec))')
                 # Target configuration only; the exec copy has the host's zlib.
-                inputs=$(bzl cquery "''${flags[@]}" --notool_deps 'deps(config(//:probe, target))' \
+                inputs=$(bazel cquery "''${flags[@]}" --notool_deps 'deps(config(//:probe, target))' \
                   | { grep -o 'zlib_[a-z0-9]*//' || true; } | sort -u | tr '\n' ' ')
-                bzl build "''${flags[@]}" //:probe //:probe_exec
+                bazel build "''${flags[@]}" //:probe //:probe_exec
                 got=$(./bazel-bin/probe)
                 tool=$(cat bazel-bin/probe_exec.txt)
                 dyn=$(readelf -dW bazel-bin/probe 2>&1 || true)
@@ -306,7 +305,7 @@
                 if [ "$zlib" = static ]; then
                   # The archive linked holds pkgsStatic's libz.a, member for member.
                   local linked_a want_a=${pkgs.pkgsStatic.zlib}/lib/libz.a m
-                  linked_a=$(echo "$(bzl info output_base)/external/"*"zlib_$tc/lib/"*.a)
+                  linked_a=$(echo "$(bazel info output_base)/external/"*"zlib_$tc/lib/"*.a)
                   [ "$(ar t "$linked_a" | sort)" = "$(ar t $want_a | sort)" ] \
                     || fail "linked archive members differ from $want_a"
                   for m in $(ar t $want_a); do
@@ -395,7 +394,7 @@
           script = ''
             target=$(compilers target 'mnemonic("CppCompile", //hello:hello)')
             exec=$(compilers exec 'mnemonic("CppCompile", //:probe_exec + deps(//:probe_exec))')
-            bzl build //hello:hello //:probe_exec
+            bazel build //hello:hello //:probe_exec
             tool=$(cat bazel-bin/probe_exec.txt)
             magic=$(head -c2 bazel-bin/hello/hello.exe)
             echo "target compiler $target-> $magic executable; exec tool compiler $exec-> $tool"
@@ -415,7 +414,7 @@
             inherit variant;
             shell.toolchains.default = mingw64Cfg;
             script = ''
-              if bzl build //:probe_exec 2>$TMPDIR/err; then
+              if bazel build //:probe_exec 2>$TMPDIR/err; then
                 fail "built an exec tool without a toolchain for the build machine"
               fi
               grep -m1 -E 'Unable to find a CC toolchain|No matching toolchains found' $TMPDIR/err || true
@@ -442,14 +441,14 @@
           };
           script = ''
             msg="CC toolchain 'clang' does not provide zlib; add it to that toolchain's nixpkgsLibs."
-            if bzl query 'deps(//:probe)' >/dev/null 2>$TMPDIR/query.err; then
+            if bazel query 'deps(//:probe)' >/dev/null 2>$TMPDIR/query.err; then
               echo "query deps(//:probe): ok"
             else
               grep -m1 'ERROR\|Error' $TMPDIR/query.err || true
               fail "unconfigured query failed"
             fi
             for cmd in "cquery deps(//:probe)" "build //:probe"; do
-              if bzl $cmd --platforms=@local_config_cc_clang//:platform 2>$TMPDIR/err; then
+              if bazel $cmd --platforms=@local_config_cc_clang//:platform 2>$TMPDIR/err; then
                 fail "$cmd: used a zlib that toolchain clang does not provide"
               fi
               echo "$cmd: $(grep -m1 -oF "$msg" $TMPDIR/err || true)"
@@ -466,15 +465,15 @@
             inherit variant;
             shell.toolchains = selectionToolchains;
             script = ''
-              kind() { bzl query --output=label_kind "@local_config_cc_$1//constraint:cc_toolchain" | cut -d' ' -f1; }
-              pid=$(bzl info server_pid)
+              kind() { bazel query --output=label_kind "@local_config_cc_$1//constraint:cc_toolchain" | cut -d' ' -f1; }
+              pid=$(bazel info server_pid)
               before="$(kind default) $(kind clang)"
               jq '.host = "clang"' .nix-bazel-deps/cc_toolchains.json > $TMPDIR/flipped
               rm .nix-bazel-deps/cc_toolchains.json
               cp $TMPDIR/flipped .nix-bazel-deps/cc_toolchains.json
               after="$(kind default) $(kind clang)"
               echo "default, clang: $before -> $after"
-              [ "$(bzl info server_pid)" = "$pid" ] || fail "the server restarted"
+              [ "$(bazel info server_pid)" = "$pid" ] || fail "the server restarted"
               [ "$before" = "alias constraint_value" ] || fail "before the flip: $before"
               [ "$after" = "constraint_value alias" ] || fail "after the flip: $after"
             '';
@@ -532,7 +531,7 @@
           variant = variants.default;
           shell.toolchains = { };
           script = ''
-            if bzl query @zlib//:zlib 2>$TMPDIR/err; then
+            if bazel query @zlib//:zlib 2>$TMPDIR/err; then
               fail "resolved a library without a CC toolchain"
             fi
             grep -m1 'Error in fail' $TMPDIR/err || true
@@ -575,12 +574,12 @@
             toolchainName = "other";
           };
           script = ''
-            if bzl build //:probe 2>$TMPDIR/build.err; then
+            if bazel build //:probe 2>$TMPDIR/build.err; then
               fail "built without a declared host toolchain"
             fi
             grep -m1 ERROR $TMPDIR/build.err || true
             grep -q "local_config_cc_other" $TMPDIR/build.err || fail "the build error does not name the toolchain"
-            if bzl query @zlib//:zlib 2>$TMPDIR/fetch.err; then
+            if bazel query @zlib//:zlib 2>$TMPDIR/fetch.err; then
               fail "fetched a library without a declared host toolchain"
             fi
             grep -m1 ERROR $TMPDIR/fetch.err || true
