@@ -19,13 +19,16 @@ in
       trap '${pkgs.lib.concatMapStrings (file: "mv ${file}.saved ${file}; ") saved}' EXIT
       ${pkgs.lib.concatMapStrings (shell: ''
         # Bazel rewrites the lockfile in its own format; the default one stays
-        # in place because dev shells evaluate it.
-        cp MODULE.bazel.lock.saved MODULE.bazel.lock
-        nix develop .#${shell} --command bazel mod deps --lockfile_mode=update >/dev/null
-        ${pkgs.lib.optionalString archives ''
-          nix develop .#${shell} --command flazel-lock-archives
-          mv flazel-archives.json locks/${shell}.archives.json
-        ''}
+        # in place because dev shells evaluate it. A server left running
+        # rewrites it again when another version's client stops it.
+        nix develop .#${shell} --command sh -ec '
+          bazel shutdown
+          trap "bazel shutdown" EXIT
+          cp MODULE.bazel.lock.saved MODULE.bazel.lock
+          bazel mod deps --lockfile_mode=update >/dev/null
+          ${pkgs.lib.optionalString archives "flazel-lock-archives"}
+        '
+        ${pkgs.lib.optionalString archives "mv flazel-archives.json locks/${shell}.archives.json"}
         mv MODULE.bazel.lock locks/${shell}.lock
       '') shells}
     ''
