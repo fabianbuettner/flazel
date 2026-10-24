@@ -15,6 +15,9 @@
   caches,
   # CC toolchains for linking (Rust needs a linker; on NixOS this must come from Nix)
   ccToolchains ? { },
+  # null lets flazel decide; see lib/cc/bazelrc.nix.
+  defaultCcToolchain ? null,
+  hostCcToolchain ? null,
   bazel ? pkgs.bazel,
   # Bazel module name -> source path; see lib/core/derivation.nix.
   moduleOverrides ? { },
@@ -30,9 +33,15 @@ let
 
   toolchainList = pkgs.lib.attrValues toolchains;
   toolchainNames = pkgs.lib.attrNames toolchains;
-  ccToolchainNames = pkgs.lib.attrNames ccToolchains;
 
   primaryCfg = builtins.head toolchainList;
+
+  ccSelection = import ../cc/bazelrc.nix {
+    inherit pkgs;
+    toolchains = ccToolchains;
+    defaultToolchain = defaultCcToolchain;
+    hostToolchain = hostCcToolchain;
+  };
 
   # Merged in a derivation for the reason the cc module gives: the tree is a pure
   # function of the two toolchain sets, so it is built once and linked, not assembled
@@ -58,6 +67,7 @@ let
 
   rustDepsSetup = ''
     flazel_link ${mergedToolchains} ${nixDepsDir}/toolchains
+    ${ccSelection.setup}
 
     # No rust toolchain contributes libs, but the directory is part of the layout a
     # consumer's bazelrc names, so it exists rather than being conditionally absent.
@@ -70,10 +80,7 @@ let
 
   # Register every CC toolchain (the linker) and every Rust target toolchain.
   rustToolchainLines =
-    import ../cc/bazelrc.nix {
-      inherit (pkgs) lib;
-      names = ccToolchainNames;
-    }
+    ccSelection.lines
     + pkgs.lib.concatMapStrings (
       name:
       pkgs.lib.concatMapStrings (

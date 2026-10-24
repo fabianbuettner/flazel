@@ -148,10 +148,10 @@
   "moduleExtensions": {
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "mDoO1RCPwP7wSbPwY5LsRAc3rvz3tZRqtUerJm4Qpms=",
-        "usagesDigest": "kO7qCvIahfCRHVNF7jb3MDNE62t7yBiFl+TJWHfeUoQ=",
+        "bzlTransitiveDigest": "Yk4IqE4UZhdJg6Badu/KyWBGlZqB1mmN4OmlEf6exNQ=",
+        "usagesDigest": "Tg8emzbsAAja0tR1nkLjXJw3MmO0zb+k53yVLwPrc6c=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "ee592b58f87cf65b897fbe2ae6282a5b4ac52a365784288b6282f330558f4ede"
+          "@@//MODULE.bazel": "e1e5484b4c2748cea2c5e1ee74f86c6224b1316cb7fbe04c99365c96c895e2a3"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -161,7 +161,12 @@
             "ruleClassName": "_nix_cc_repo",
             "attributes": {
               "path": ".nix-bazel-deps/toolchains/default/cc",
-              "toolchain_name": "default"
+              "toolchain_name": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
             }
           },
           "local_config_cc_default_deps": {
@@ -171,14 +176,89 @@
               "path": ".nix-bazel-deps/toolchains/default/deps"
             }
           },
+          "local_config_cc_clang": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_cc_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/clang/cc",
+              "toolchain_name": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "local_config_cc_clang_deps": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_cc_deps_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/clang/deps"
+            }
+          },
+          "local_config_cc_musl": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_cc_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/musl/cc",
+              "toolchain_name": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "local_config_cc_musl_deps": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_cc_deps_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/musl/deps"
+            }
+          },
           "headers_probe_default": {
             "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
             "ruleClassName": "_nix_lib_repo",
             "attributes": {
               "path": ".nix-bazel-deps/libs/headers_probe_default",
-              "fallback_path": ".nix-bazel-deps/libs/headers_probe",
               "lib_name": "headers_probe",
-              "libs": []
+              "libs": [],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "headers_probe_clang": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/headers_probe_clang",
+              "lib_name": "headers_probe",
+              "libs": [],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "headers_probe_musl": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/headers_probe_musl",
+              "lib_name": "headers_probe",
+              "libs": [],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
             }
           },
           "headers_probe": {
@@ -187,9 +267,67 @@
             "attributes": {
               "lib_name": "headers_probe",
               "toolchains": [
-                "default"
-              ],
-              "default_toolchain": "default"
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib_default": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/zlib_default",
+              "lib_name": "zlib",
+              "libs": [],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib_clang": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/zlib_clang",
+              "lib_name": "zlib",
+              "libs": [],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib_musl": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/zlib_musl",
+              "lib_name": "zlib",
+              "libs": [],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib": {
+            "bzlFile": "@@flazel~//bazel:nix_cc.bzl",
+            "ruleClassName": "_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "zlib",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
             }
           }
         },

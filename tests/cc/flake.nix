@@ -144,7 +144,10 @@
 
         gccCfg = flazel.lib.cc.mkConfig {
           inherit pkgs;
-          nixpkgsLibs.headers_probe = headersProbe;
+          nixpkgsLibs = {
+            headers_probe = headersProbe;
+            zlib = pkgs.zlib;
+          };
         };
 
         clangCfg = flazel.lib.cc.mkConfig {
@@ -170,6 +173,420 @@
             libcName = "none";
             freestanding = true;
           };
+        };
+
+        # Three toolchains for one triple, each with its own zlib; clang's
+        # differs from gcc's only in the store path the probe's RUNPATH names.
+        clangZlib = pkgs.zlib.overrideAttrs { FLAZEL_VARIANT = "clang"; };
+        selectionToolchains = {
+          default = gccCfg;
+          clang = flazel.lib.cc.mkConfig {
+            inherit pkgs;
+            toolchainName = "clang";
+            compiler = "clang";
+            clang = pkgs.clang;
+            nixpkgsLibs.zlib = clangZlib;
+          };
+          musl = flazel.lib.cc.mkConfig {
+            inherit pkgs;
+            toolchainName = "musl";
+            static = true;
+            nixpkgsLibs.zlib = pkgs.pkgsStatic.zlib;
+          };
+        };
+        major = version: builtins.head (pkgs.lib.splitString "." version);
+        # Expected probe output per toolchain; zlib is a store path or "static".
+        probeIdentity = {
+          default = "gcc ${major gccCfg.gcc.version} glibc";
+          clang = "clang ${major pkgs.clang.cc.version} glibc";
+          musl = "gcc ${major selectionToolchains.musl.gcc.version} no-glibc";
+        };
+        probeZlib = {
+          default = "${pkgs.zlib}/lib";
+          clang = "${clangZlib}/lib";
+          musl = "static";
+        };
+
+        # Runs a dev shell's hook in the sandbox, then `script`.
+        mkShellCheck =
+          {
+            name,
+            variant,
+            shell,
+            script,
+          }:
+          pkgs.stdenv.mkDerivation {
+            name = "flazel-cc-${name}${variant.suffix}";
+            src = ./.;
+            nativeBuildInputs = [
+              variant.bazel
+              pkgs.jq
+            ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              ${pkgs.lib.optionalString (variant.lockOverride != null) ''
+                cp ${variant.lockOverride} MODULE.bazel.lock
+                chmod u+w MODULE.bazel.lock
+              ''}
+              ${(flazel.lib.cc.mkDevShell (
+                {
+                  inherit pkgs;
+                  inherit (variant) bazel lockfileMode;
+                  caches = cachesFor variant;
+                }
+                // shell
+              )).shellHook
+              }
+              root=$TMPDIR/bazel-out
+              bzl() { bazel --output_user_root=$root "$@"; }
+              patchShebangs --build "$(bzl info install_base)/embedded_tools" >/dev/null
+              failed=0
+              fail() {
+                echo "FAIL: $*" >&2
+                failed=1
+              }
+              # Compiler repos of the actions aquery lists; $1: exec or target.
+              compilers() {
+                local want=$1
+                shift
+                bzl aquery "$@" --output=text \
+                  | awk -v RS= -v want="$want" '(want == "exec") == /Configuration: [^\n]*-exec/' \
+                  | { grep -o 'local_config_cc_[a-z0-9_]*/bin/gcc' || true; } | sort -u | tr '\n' ' '
+              }
+              ${script}
+              [ "$failed" = 0 ]
+            '';
+            installPhase = "echo ok > $out";
+          };
+
+        # Per platform: which toolchain compiles the probe and its exec copy,
+        # what the probe prints, and which zlib it links.
+        mkSelectionCheck =
+          {
+            name,
+            variant,
+            shell,
+            # Toolchain the exec platform resolves to.
+            execToolchain,
+            # [ platform toolchain ], "" for no --platforms.
+            cases,
+          }:
+          mkShellCheck {
+            inherit name variant shell;
+            script = ''
+              expect() {
+                local platform=$1 tc=$2 want=$3 zlib=$4 flags=() used exec inputs got tool dyn linked
+                [ -n "$platform" ] && flags=("--platforms=$platform")
+                used=$(compilers target "''${flags[@]}" 'mnemonic("CppCompile", //:probe)')
+                exec=$(compilers exec "''${flags[@]}" 'mnemonic("CppCompile", //:probe_exec + deps(//:probe_exec))')
+                # Target configuration only; the exec copy has the host's zlib.
+                inputs=$(bzl cquery "''${flags[@]}" --notool_deps 'deps(config(//:probe, target))' \
+                  | { grep -o 'zlib_[a-z0-9]*//' || true; } | sort -u | tr '\n' ' ')
+                bzl build "''${flags[@]}" //:probe //:probe_exec
+                got=$(./bazel-bin/probe)
+                tool=$(cat bazel-bin/probe_exec.txt)
+                dyn=$(readelf -dW bazel-bin/probe 2>&1 || true)
+                if grep -q NEEDED <<<"$dyn"; then
+                  grep -q 'NEEDED.*\[libz\.so' <<<"$dyn" || fail "no libz NEEDED"
+                  linked=$(grep -o "RUNPATH.*" <<<"$dyn" | tr ':[]' '\n\n\n' | grep -m1 '/nix/store/.*/lib$' | grep zlib || true)
+                elif ! readelf -lW bazel-bin/probe | grep -q INTERP; then
+                  linked=static
+                else
+                  linked=none
+                fi
+                echo "platform ''${platform:-<none>}: compiler $used-> $got, links $inputs-> zlib $linked; exec tool compiler $exec-> $tool"
+                [ "$used" = "local_config_cc_$tc/bin/gcc " ] || fail "compiled by $used, want local_config_cc_$tc"
+                [ "$exec" = "local_config_cc_${execToolchain}/bin/gcc " ] \
+                  || fail "exec tool compiled by $exec, want local_config_cc_${execToolchain}"
+                [ "$got" = "$want" ] || fail "probe says $got, want $want"
+                [ "$tool" = "${probeIdentity.${execToolchain}}" ] \
+                  || fail "exec tool says $tool, want ${probeIdentity.${execToolchain}}"
+                [ "$inputs" = "zlib_$tc// " ] || fail "depends on $inputs, want zlib_$tc only"
+                [ "$linked" = "$zlib" ] || fail "zlib $linked, want $zlib"
+                if [ "$zlib" = static ]; then
+                  # The archive linked holds pkgsStatic's libz.a, member for member.
+                  local linked_a want_a=${pkgs.pkgsStatic.zlib}/lib/libz.a m
+                  linked_a=$(echo "$(bzl info output_base)/external/"*"zlib_$tc/lib/"*.a)
+                  [ "$(ar t "$linked_a" | sort)" = "$(ar t $want_a | sort)" ] \
+                    || fail "linked archive members differ from $want_a"
+                  for m in $(ar t $want_a); do
+                    cmp -s <(ar p "$linked_a" $m) <(ar p $want_a $m) || fail "$m differs from $want_a"
+                  done
+                fi
+              }
+
+              ${pkgs.lib.concatMapStrings (
+                case:
+                let
+                  tc = builtins.elemAt case 1;
+                in
+                ''
+                  expect "${builtins.elemAt case 0}" ${tc} "${probeIdentity.${tc}}" "${probeZlib.${tc}}"
+                ''
+              ) cases}
+            '';
+          };
+
+        # The host platform and each toolchain's own platform.
+        selectionCases =
+          host: tcs:
+          [
+            [
+              "@bazel_tools//tools:host_platform"
+              host
+            ]
+          ]
+          ++ map (tc: [
+            "@local_config_cc_${tc}//:platform"
+            tc
+          ]) tcs;
+        allSelection = [
+          "default"
+          "clang"
+          "musl"
+        ];
+
+        # Each toolchain by its platform; the one named "default" by none.
+        mkSelection =
+          variant:
+          mkSelectionCheck {
+            name = "selection";
+            inherit variant;
+            shell.toolchains = selectionToolchains;
+            execToolchain = "default";
+            cases = selectionCases "default" allSelection ++ [
+              [
+                "//:inherits_clang"
+                "clang"
+              ]
+            ];
+          };
+
+        # An explicit default wins over the name and, being native, is the host.
+        explicitDefault = mkSelectionCheck {
+          name = "explicit-default";
+          variant = variants.default;
+          shell = {
+            toolchains = selectionToolchains;
+            defaultToolchain = "musl";
+          };
+          execToolchain = "musl";
+          cases = selectionCases "musl" allSelection;
+        };
+
+        # A subset without the toolchain named "default"; with subset-derivation
+        # the only check of a host that is not "default".
+        subsetShell = mkSelectionCheck {
+          name = "subset-shell";
+          variant = variants.default;
+          shell.toolchains = { inherit (selectionToolchains) clang; };
+          execToolchain = "clang";
+          cases = selectionCases "clang" [ "clang" ];
+        };
+
+        # A cross default: the native toolchain builds exec tools, never PATH's.
+        crossDefault = mkShellCheck {
+          name = "cross-default";
+          variant = variants.default;
+          shell.toolchains = {
+            default = mingw64Cfg;
+            inherit (selectionToolchains) clang;
+          };
+          script = ''
+            target=$(compilers target 'mnemonic("CppCompile", //hello:hello)')
+            exec=$(compilers exec 'mnemonic("CppCompile", //:probe_exec + deps(//:probe_exec))')
+            bzl build //hello:hello //:probe_exec
+            tool=$(cat bazel-bin/probe_exec.txt)
+            magic=$(head -c2 bazel-bin/hello/hello.exe)
+            echo "target compiler $target-> $magic executable; exec tool compiler $exec-> $tool"
+            [ "$target" = "local_config_cc_default/bin/gcc " ] || fail "target compiled by $target"
+            [ "$magic" = MZ ] || fail "hello.exe is not a Windows executable"
+            [ "$exec" = "local_config_cc_clang/bin/gcc " ] || fail "exec tool compiled by $exec"
+            [ "$tool" = "${probeIdentity.clang}" ] || fail "exec tool says $tool"
+          '';
+        };
+
+        # No native toolchain: no exec tools, reported in toolchain resolution
+        # (the wording differs between Bazel versions).
+        mkCrossOnly =
+          variant:
+          mkShellCheck {
+            name = "cross-only";
+            inherit variant;
+            shell.toolchains.default = mingw64Cfg;
+            script = ''
+              if bzl build //:probe_exec 2>$TMPDIR/err; then
+                fail "built an exec tool without a toolchain for the build machine"
+              fi
+              grep -m1 -E 'Unable to find a CC toolchain|No matching toolchains found' $TMPDIR/err || true
+              grep -qE 'Unable to find a CC toolchain using toolchain resolution|No matching toolchains found for types' $TMPDIR/err \
+                || fail "no toolchain-resolution error"
+              if grep -q 'cc_configure_extension' $TMPDIR/err; then
+                fail "rules_cc's autodetected toolchain took part"
+              fi
+            '';
+          };
+
+        # A missing library fails naming toolchain and library, never borrowing
+        # another's; an unconfigured query must still succeed.
+        missingLibrary = mkShellCheck {
+          name = "missing-library";
+          variant = variants.default;
+          shell.toolchains = selectionToolchains // {
+            clang = flazel.lib.cc.mkConfig {
+              inherit pkgs;
+              toolchainName = "clang";
+              compiler = "clang";
+              clang = pkgs.clang;
+            };
+          };
+          script = ''
+            msg="CC toolchain 'clang' does not provide zlib; add it to that toolchain's nixpkgsLibs."
+            if bzl query 'deps(//:probe)' >/dev/null 2>$TMPDIR/query.err; then
+              echo "query deps(//:probe): ok"
+            else
+              grep -m1 'ERROR\|Error' $TMPDIR/query.err || true
+              fail "unconfigured query failed"
+            fi
+            for cmd in "cquery deps(//:probe)" "build //:probe"; do
+              if bzl $cmd --platforms=@local_config_cc_clang//:platform 2>$TMPDIR/err; then
+                fail "$cmd: used a zlib that toolchain clang does not provide"
+              fi
+              echo "$cmd: $(grep -m1 -oF "$msg" $TMPDIR/err || true)"
+              grep -qF "$msg" $TMPDIR/err || fail "$cmd: the error does not name the toolchain and the library"
+            done
+          '';
+        };
+
+        # Flipping the host toolchain within one server re-runs the repo rules.
+        mkMarkerFlip =
+          variant:
+          mkShellCheck {
+            name = "marker-flip";
+            inherit variant;
+            shell.toolchains = selectionToolchains;
+            script = ''
+              kind() { bzl query --output=label_kind "@local_config_cc_$1//constraint:cc_toolchain" | cut -d' ' -f1; }
+              pid=$(bzl info server_pid)
+              before="$(kind default) $(kind clang)"
+              jq '.host = "clang"' .nix-bazel-deps/cc_toolchains.json > $TMPDIR/flipped
+              rm .nix-bazel-deps/cc_toolchains.json
+              cp $TMPDIR/flipped .nix-bazel-deps/cc_toolchains.json
+              after="$(kind default) $(kind clang)"
+              echo "default, clang: $before -> $after"
+              [ "$(bzl info server_pid)" = "$pid" ] || fail "the server restarted"
+              [ "$before" = "alias constraint_value" ] || fail "before the flip: $before"
+              [ "$after" = "constraint_value alias" ] || fail "after the flip: $after"
+            '';
+          };
+
+        # PATH's tools come from the host, not the first toolchain by name.
+        pathTools =
+          let
+            cross = pkgs.pkgsCross.mingwW64;
+            windows = flazel.lib.cc.mkConfig {
+              inherit pkgs;
+              toolchainName = "a_windows";
+              gcc = cross.buildPackages.gcc;
+              target = {
+                triple = cross.stdenv.hostPlatform.config;
+                libc = cross.windows.mingw_w64;
+                libcName = "mingw";
+                threads = cross.windows.mcfgthreads;
+              };
+            };
+            # As mkShell lists a package once it has spliced it.
+            spliced = pkg: toString (builtins.head (pkgs.mkShell { packages = [ pkg ]; }).nativeBuildInputs);
+            onPath =
+              toolchains: cfg:
+              let
+                inputs =
+                  map toString
+                    (flazel.lib.cc.mkDevShell { inherit pkgs caches toolchains; }).nativeBuildInputs;
+              in
+              builtins.elem (spliced cfg.gcc) inputs && builtins.elem (spliced cfg.binutils) inputs;
+            # The default can build for the build machine: it is the host.
+            nativeDefault = onPath {
+              a_windows = windows;
+              default = gccCfg;
+            } gccCfg;
+            # A cross default: the only native toolchain is the host.
+            crossDefault = onPath {
+              default = mingw64Cfg;
+              musl = selectionToolchains.musl;
+            } selectionToolchains.musl;
+          in
+          pkgs.runCommand "flazel-cc-path-tools" { } (
+            if nativeDefault && crossDefault then
+              "touch $out"
+            else
+              ''
+                echo "FAIL: host toolchain's gcc and binutils on PATH: native default ${pkgs.lib.boolToString nativeDefault}, cross default ${pkgs.lib.boolToString crossDefault}" >&2
+                exit 1
+              ''
+          );
+
+        # A shell without CC toolchains says so when a library is asked for.
+        noToolchain = mkShellCheck {
+          name = "no-toolchain";
+          variant = variants.default;
+          shell.toolchains = { };
+          script = ''
+            if bzl query @zlib//:zlib 2>$TMPDIR/err; then
+              fail "resolved a library without a CC toolchain"
+            fi
+            grep -m1 'Error in fail' $TMPDIR/err || true
+            grep -q 'This dev shell or build provides no CC toolchain' $TMPDIR/err \
+              || fail "the error does not say the shell provides no CC toolchain"
+          '';
+        };
+
+        # Several toolchains, no choice: an evaluation error, not an order pick.
+        ambiguousShell =
+          extra:
+          flazel.lib.cc.mkDevShell (
+            {
+              inherit pkgs caches;
+              toolchains = { inherit (selectionToolchains) clang musl; };
+            }
+            // extra
+          );
+        ambiguousDefault =
+          let
+            refused = !(builtins.tryEval (ambiguousShell { }).drvPath).success;
+            chosen = (builtins.tryEval (ambiguousShell { defaultToolchain = "clang"; }).drvPath).success;
+          in
+          pkgs.runCommand "flazel-cc-ambiguous-default" { } (
+            if refused && chosen then
+              "touch $out"
+            else
+              ''
+                echo "FAIL: ambiguous refused=${pkgs.lib.boolToString refused}, explicit accepted=${pkgs.lib.boolToString chosen}" >&2
+                exit 1
+              ''
+          );
+
+        # A host toolchain MODULE.bazel does not declare fails, naming it.
+        undeclaredDefault = mkShellCheck {
+          name = "undeclared-default";
+          variant = variants.default;
+          shell.toolchains.other = flazel.lib.cc.mkConfig {
+            inherit pkgs;
+            toolchainName = "other";
+          };
+          script = ''
+            if bzl build //:probe 2>$TMPDIR/build.err; then
+              fail "built without a declared host toolchain"
+            fi
+            grep -m1 ERROR $TMPDIR/build.err || true
+            grep -q "local_config_cc_other" $TMPDIR/build.err || fail "the build error does not name the toolchain"
+            if bzl query @zlib//:zlib 2>$TMPDIR/fetch.err; then
+              fail "fetched a library without a declared host toolchain"
+            fi
+            grep -m1 ERROR $TMPDIR/fetch.err || true
+            grep -qF 'nix_cc.toolchain(name = "other")' $TMPDIR/fetch.err \
+              || fail "the fetch error does not name the undeclared host toolchain"
+          '';
         };
 
         mkVersionShell =
@@ -213,6 +630,9 @@
             runTest = false;
             inherit variant;
           };
+          "selection${variant.suffix}" = mkSelection variant;
+          "marker-flip${variant.suffix}" = mkMarkerFlip variant;
+          "cross-only${variant.suffix}" = mkCrossOnly variant;
           "mingw64${variant.suffix}" = mkCcCheck {
             name = "flazel-cc-mingw64${variant.suffix}";
             cfg = mingw64Cfg;
@@ -314,6 +734,28 @@
             bazelFlags = "--platforms=@local_config_cc_default//:platform";
             exe = ".exe";
             runner = "${wineRunner}";
+          };
+          # --platforms picks exactly that toolchain and its libraries.
+          selection = mkSelection variants.default;
+          explicit-default = explicitDefault;
+          subset-shell = subsetShell;
+          cross-default = crossDefault;
+          cross-only = mkCrossOnly variants.default;
+          missing-library = missingLibrary;
+          marker-flip = mkMarkerFlip variants.default;
+          no-toolchain = noToolchain;
+          path-tools = pathTools;
+          ambiguous-default = ambiguousDefault;
+          undeclared-default = undeclaredDefault;
+          # The derivation's one toolchain, not named "default", is the host.
+          subset-derivation = mkCcCheck {
+            name = "flazel-cc-subset-derivation";
+            cfg = selectionToolchains.clang;
+            pkg = "";
+            bin = "probe";
+            expect = probeIdentity.clang;
+            runTest = false;
+            bazelFlags = "--platforms=@bazel_tools//tools:host_platform";
           };
           # Every file under a nixpkgs library's include/ reaches the sandbox.
           headers = mkCcCheck {

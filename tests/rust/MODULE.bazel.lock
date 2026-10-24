@@ -1136,7 +1136,7 @@
     },
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "mDoO1RCPwP7wSbPwY5LsRAc3rvz3tZRqtUerJm4Qpms=",
+        "bzlTransitiveDigest": "Yk4IqE4UZhdJg6Badu/KyWBGlZqB1mmN4OmlEf6exNQ=",
         "usagesDigest": "mGa58u0ZCZgSBIJsctFTDDky3Rb6E3DBh2dDwnz6asU=",
         "recordedFileInputs": {
           "@@//MODULE.bazel": "c13be15586fd1a21f4b7b49d2d405226820ced1b96fca65041b838544af793b2"
@@ -1149,7 +1149,10 @@
             "ruleClassName": "_nix_cc_repo",
             "attributes": {
               "path": ".nix-bazel-deps/toolchains/default/cc",
-              "toolchain_name": "default"
+              "toolchain_name": "default",
+              "toolchains": [
+                "default"
+              ]
             }
           },
           "local_config_cc_default_deps": {

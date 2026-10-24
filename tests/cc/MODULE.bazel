@@ -18,15 +18,21 @@ local_path_override(
     path = "dep",
 )
 
-# CC toolchain. The flake symlinks a different cfg (gcc, clang, ...) as the
-# "default" toolchain per check, so a single declared name covers the matrix
-# without two toolchains colliding on the same x86_64-linux platform.
+# CC toolchains. Most checks symlink a different cfg (gcc, clang, ...) as
+# "default" and leave the others absent. The selection checks provide all three
+# at once, for the same x86_64-linux target, and pick one with --platforms.
 nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
 nix_cc.toolchain(name = "default")
+nix_cc.toolchain(name = "clang")
+nix_cc.toolchain(name = "musl")
 nix_cc.package(name = "headers_probe")
+nix_cc.package(name = "zlib")
 use_repo(
     nix_cc,
     "headers_probe",
+    "local_config_cc_clang",
     "local_config_cc_default",
     "local_config_cc_default_deps",
+    "local_config_cc_musl",
+    "zlib",
 )

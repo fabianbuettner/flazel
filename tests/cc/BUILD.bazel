@@ -1,1 +1,46 @@
 # Flazel CC integration test workspace
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+# Prints its compiler, libc and zlib variant: what toolchain resolution picked.
+genrule(
+    name = "probe_src",
+    outs = ["probe.c"],
+    cmd = """cat > $@ <<'EOF'
+#include <stdio.h>
+#include <zlib.h>
+int main(void) {
+  if (!zlibVersion()[0]) return 1;
+#if defined(__clang__)
+  printf("clang %d", __clang_major__);
+#else
+  printf("gcc %d", __GNUC__);
+#endif
+#if defined(__GLIBC__)
+  printf(" glibc\\n");
+#else
+  printf(" no-glibc\\n");
+#endif
+  return 0;
+}
+EOF""",
+)
+
+cc_binary(
+    name = "probe",
+    srcs = [":probe_src"],
+    deps = ["@zlib"],
+)
+
+# The probe built for the exec platform, as every build tool is.
+genrule(
+    name = "probe_exec",
+    outs = ["probe_exec.txt"],
+    cmd = "$(execpath :probe) > $@",
+    tools = [":probe"],
+)
+
+# A hand-written platform selecting a toolchain by inheriting its platform.
+platform(
+    name = "inherits_clang",
+    parents = ["@local_config_cc_clang//:platform"],
+)

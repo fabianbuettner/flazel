@@ -385,10 +385,18 @@ let
     else
       "@flazel//bazel/constraints:hosted";
 
+  # cpu, os and C environment cannot tell apart toolchains for one target;
+  # the generated cc_toolchain value can.
+  targetConstraints = ''["${cpuConstraint}", "${osConstraint}", "${envConstraint}", "//constraint:cc_toolchain"]'';
+
   # Exec platform = the host that runs the compiler, derived from the build
   # platform instead of assuming x86_64-linux.
   execCpuConstraint = platform.cpuConstraint pkgs.stdenv.buildPlatform.parsed.cpu.name;
   execOsConstraint = platform.osConstraint pkgs.stdenv.buildPlatform.parsed.kernel.name;
+
+  # Whether it can build for the build machine, and so build exec tools.
+  targetsBuildPlatform =
+    cpuConstraint == execCpuConstraint && osConstraint == execOsConstraint && !freestanding;
 
   # Generate Bazel repos for each nixpkgs library
   nixpkgsRepos = builtins.mapAttrs (
@@ -570,7 +578,7 @@ let
     toolchain(
         name = "cc_toolchain",
         exec_compatible_with = ["${execCpuConstraint}", "${execOsConstraint}"],
-        target_compatible_with = ["${cpuConstraint}", "${osConstraint}", "${envConstraint}"],
+        target_compatible_with = ${targetConstraints},
         toolchain = ":local_config_cc_toolchain",
         toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
     )
@@ -578,7 +586,7 @@ let
     # Platform for --platforms flag selection
     platform(
         name = "platform",
-        constraint_values = ["${cpuConstraint}", "${osConstraint}", "${envConstraint}"],
+        constraint_values = ${targetConstraints},
     )
   '';
 
@@ -615,14 +623,13 @@ let
   '';
 
   # Nix store paths for toolchain and libs (read-only)
-  # Structure: toolchains/<name>/cc/, toolchains/<name>/deps/, libs/
+  # Structure: toolchains/<name>/cc/, toolchains/<name>/deps/, libs/<lib>_<name>/
   bazelNixDeps = pkgs.runCommand "bazel-nix-deps-${toolchainName}" { } ''
     mkdir -p $out/toolchains/${toolchainName} $out/libs
     ln -s ${localConfigCc} $out/toolchains/${toolchainName}/cc
     ln -s ${localConfigCcDeps} $out/toolchains/${toolchainName}/deps
     ${builtins.concatStringsSep "\n" (
       pkgs.lib.mapAttrsToList (name: repo: ''
-        ln -s ${repo} $out/libs/${name}
         ln -s ${repo} $out/libs/${name}_${toolchainName}
       '') nixpkgsRepos
     )}
@@ -639,6 +646,7 @@ in
     bazelNixDeps
     isBaremetal
     toolchainName
+    targetsBuildPlatform
     ;
   # Export effectiveStatic as 'static' so consumers see the resolved value
   static = effectiveStatic;

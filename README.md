@@ -391,6 +391,102 @@ clangCfg = flazel.lib.cc.mkConfig {
 
 Enables `layering_check`, `module_maps`, `parse_headers`, `template_diagnostics`.
 
+## Selecting a toolchain
+
+Every toolchain repo emits a platform, and `--platforms` with it selects exactly
+that toolchain and its own `nixpkgsLibs`, also among several for the same
+target (gcc and clang, glibc and musl):
+
+```nix
+toolchains = { default = gccCfg; clang = clangCfg; };
+```
+
+```bash
+bazel build //...                                              # default (gcc)
+bazel build //... --platforms=@local_config_cc_clang//:platform # clang
+```
+
+A dev shell or build makes two choices from the toolchains it provides, not
+from the ones `MODULE.bazel` declares:
+
+- **The default target**, what a plain `bazel build` builds for:
+  `defaultToolchain` if given, else the toolchain named `default`, else the
+  only one. Several toolchains, none named `default`, must say which.
+- **The host toolchain**, which builds the build's own tools and serves every
+  platform that does not name a toolchain: `@platforms//host`, and platforms
+  you write yourself. It is `hostToolchain` if given, else the default target
+  if that can build for the build machine, else the only toolchain that can.
+  A shell whose default is a cross toolchain therefore builds its tools with
+  the native one. If several native toolchains could, it must say which.
+
+```nix
+flazel.lib.cc.mkDevShell {
+  inherit pkgs caches;
+  toolchains = { windows = mingwCfg; gcc = gccCfg; clang = clangCfg; };
+  defaultToolchain = "windows";
+  hostToolchain = "gcc";
+};
+```
+
+`mkDerivation` provides one toolchain: it is the default target, and the host
+toolchain if it can build for the build machine. The Rust builders take the same
+choices as `defaultCcToolchain` and `hostCcToolchain`.
+
+flazel never uses a compiler from `PATH`: `.bazelrc.nix` sets
+`BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1`, also in a shell or build that provides no
+CC toolchain. A build no flazel toolchain matches therefore fails in toolchain
+resolution, naming the platform (the wording depends on the Bazel version),
+instead of falling back to an autodetected gcc.
+
+Every library variant comes from its toolchain's own `nixpkgsLibs`. Building
+for a toolchain that does not provide a library fails, naming both, rather
+than linking another toolchain's variant.
+
+The choices are recorded in `.nix-bazel-deps/cc_toolchains.json`, which the
+repository rules read. A `.nix-bazel-deps` written by an older flazel has no
+such file, and every C++ build then fails until you re-enter the dev shell. The
+host toolchain must be declared with `nix_cc.toolchain`, or builds that use it
+fail with a message naming the missing declaration.
+
+To have a hand-written platform select a toolchain other than the host one, add
+that toolchain's `@local_config_cc_<name>//constraint:cc_toolchain` to its
+`constraint_values`, or inherit it:
+
+```starlark
+platform(
+    name = "my_platform",
+    parents = ["@local_config_cc_clang//:platform"],
+)
+```
+
+The same goes for platforms another rule set defines, such as
+`@rules_rust//rust/platform:*`: without the constraint they select the host
+toolchain if it fits them, and no flazel toolchain otherwise.
+
+### Upgrading
+
+Toolchain selection used to depend on registration order (the last registered
+compatible toolchain won), and `--platforms=@local_config_cc_<name>//:platform`
+did not select anything. After upgrading:
+
+- A shell with several toolchains for the same target that passes no
+  `--platforms` now builds with its default toolchain, and so do its exec tools.
+  `{default, musl}`, for example, built with musl before and builds with gcc
+  now.
+- A project that already passed `--platforms=@local_config_cc_<name>//:platform`
+  gets that toolchain for the first time. A clang configuration with
+  `-Werror` or `layering_check` will now actually run clang, and may report
+  what it never saw.
+- Platforms from other rule sets need the constraint, as above.
+- Re-enter the dev shell once, to write `.nix-bazel-deps/cc_toolchains.json`.
+- Shells with several toolchains, none named `default`, must pass
+  `defaultToolchain`; shells whose default cannot build for the build machine
+  and that provide several that can must pass `hostToolchain`.
+- A toolchain that does not list a library in its `nixpkgsLibs` no longer
+  borrows another toolchain's variant.
+- A Rust shell or derivation without `ccToolchains` no longer links with the
+  system compiler: pass one in `ccToolchains`.
+
 ## Toolchain features
 
 Bazel `--features=` flags wired to compiler/linker options.
@@ -541,6 +637,12 @@ nix build  # same bits, every time
 **Offline.** Once the dev-shell closure is in your Nix store (first `nix develop`, an internal binary cache, or `nix copy` over sneakernet), the network is optional: `nix develop --offline` and Bazel builds both run air-gapped.
 
 **Portable.** Install Nix. That's the entire prerequisites list.
+
+## Known limitations
+
+- `lib.rust.mkDevShell` puts the first Rust toolchain by attribute name on
+  `PATH` (rustc, cargo, clippy). With several Rust toolchains, which one that
+  is follows their names, not a choice.
 
 ## References
 

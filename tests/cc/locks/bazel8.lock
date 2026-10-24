@@ -161,8 +161,8 @@
   "moduleExtensions": {
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "mDoO1RCPwP7wSbPwY5LsRAc3rvz3tZRqtUerJm4Qpms=",
-        "usagesDigest": "jgNiBYAMJvba4VDnWDgW1HfQkIZ6+prnh8Msd6urxSs=",
+        "bzlTransitiveDigest": "Yk4IqE4UZhdJg6Badu/KyWBGlZqB1mmN4OmlEf6exNQ=",
+        "usagesDigest": "hH5d2wbku3bUOXbuXJ41Ax9a95evihkC0YhwSQs2jqw=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -171,7 +171,12 @@
             "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_cc_repo",
             "attributes": {
               "path": ".nix-bazel-deps/toolchains/default/cc",
-              "toolchain_name": "default"
+              "toolchain_name": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
             }
           },
           "local_config_cc_default_deps": {
@@ -180,13 +185,82 @@
               "path": ".nix-bazel-deps/toolchains/default/deps"
             }
           },
+          "local_config_cc_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_cc_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/clang/cc",
+              "toolchain_name": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "local_config_cc_clang_deps": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_cc_deps_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/clang/deps"
+            }
+          },
+          "local_config_cc_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_cc_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/musl/cc",
+              "toolchain_name": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "local_config_cc_musl_deps": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_cc_deps_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/toolchains/musl/deps"
+            }
+          },
           "headers_probe_default": {
             "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
             "attributes": {
               "path": ".nix-bazel-deps/libs/headers_probe_default",
-              "fallback_path": ".nix-bazel-deps/libs/headers_probe",
               "lib_name": "headers_probe",
-              "libs": []
+              "libs": [],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "headers_probe_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/headers_probe_clang",
+              "lib_name": "headers_probe",
+              "libs": [],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "headers_probe_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/headers_probe_musl",
+              "lib_name": "headers_probe",
+              "libs": [],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
             }
           },
           "headers_probe": {
@@ -194,9 +268,63 @@
             "attributes": {
               "lib_name": "headers_probe",
               "toolchains": [
-                "default"
-              ],
-              "default_toolchain": "default"
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/zlib_default",
+              "lib_name": "zlib",
+              "libs": [],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/zlib_clang",
+              "lib_name": "zlib",
+              "libs": [],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/zlib_musl",
+              "lib_name": "zlib",
+              "libs": [],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "zlib": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "zlib",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
             }
           }
         },

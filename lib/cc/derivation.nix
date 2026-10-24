@@ -33,6 +33,14 @@ let
   coreDeriv = import ../core/derivation.nix;
   inherit (import ../core/constants.nix) nixDepsDir;
 
+  # A build's one toolchain is the default target, and the host if native.
+  ccSelection = import ./bazelrc.nix {
+    inherit pkgs;
+    toolchains.${cfg.toolchainName} = cfg;
+    defaultToolchain = null;
+    hostToolchain = null;
+  };
+
   # CC-specific setup: symlink toolchain and libs
   # Uses new directory structure: toolchains/<name>/cc, toolchains/<name>/deps
   ccDepsSetup = ''
@@ -44,6 +52,7 @@ let
     # describes. See mkFlazelDepsSetup for the helper and the reasoning.
     flazel_link ${cfg.bazelNixDeps}/toolchains/${cfg.toolchainName} ${nixDepsDir}/toolchains/${cfg.toolchainName}
     flazel_link ${cfg.bazelNixDeps}/libs ${nixDepsDir}/libs
+    ${ccSelection.setup}
   '';
 in
 coreDeriv.mkFlazelDerivation {
@@ -59,10 +68,7 @@ coreDeriv.mkFlazelDerivation {
     installPhase
     ;
 
-  toolchainLines = import ./bazelrc.nix {
-    inherit (pkgs) lib;
-    names = [ cfg.toolchainName ];
-  };
+  toolchainLines = ccSelection.lines;
   extraDepsSetup = ccDepsSetup;
 
   nativeBuildInputs = [

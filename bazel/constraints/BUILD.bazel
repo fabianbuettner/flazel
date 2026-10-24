@@ -24,3 +24,15 @@ constraint_value(
     name = "freestanding",
     constraint_setting = ":c_environment",
 )
+
+# Tells apart toolchains that share cpu, os and C environment. A platform
+# without a value selects the host toolchain, which lib/cc/bazelrc.nix picks.
+constraint_setting(
+    name = "cc_toolchain",
+    default_constraint_value = ":default_cc_toolchain",
+)
+
+constraint_value(
+    name = "default_cc_toolchain",
+    constraint_setting = ":cc_toolchain",
+)

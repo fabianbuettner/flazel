@@ -29,6 +29,9 @@
   # CC toolchains for linking (rust binaries need a linker; on NixOS it must
   # come from Nix). Keyed by name, same shape as cc.mkDevShell's toolchains.
   ccToolchains ? { },
+  # null lets flazel decide; see lib/cc/bazelrc.nix.
+  defaultCcToolchain ? null,
+  hostCcToolchain ? null,
   extraNativeBuildInputs ? [ ],
   extraBuildInputs ? [ ],
 }:
@@ -36,7 +39,12 @@ let
   coreDeriv = import ../core/derivation.nix;
   inherit (import ../core/constants.nix) nixDepsDir;
 
-  ccToolchainNames = pkgs.lib.attrNames ccToolchains;
+  ccSelection = import ../cc/bazelrc.nix {
+    inherit pkgs;
+    toolchains = ccToolchains;
+    defaultToolchain = defaultCcToolchain;
+    hostToolchain = hostCcToolchain;
+  };
 
   rustDepsSetup = ''
     mkdir -p ${nixDepsDir}/toolchains/${cfg.toolchainName}
@@ -50,6 +58,7 @@ let
         ln -sfn ${ccCfg.bazelNixDeps}/toolchains/${name}/deps ${nixDepsDir}/toolchains/${name}/deps
       '') ccToolchains
     )}
+    ${ccSelection.setup}
 
     ${pkgs.lib.optionalString (cargoBazel != null) ''
       export CARGO_BAZEL_GENERATOR_URL="file://${cargoBazel}/bin/cargo-bazel"
@@ -70,10 +79,7 @@ coreDeriv.mkFlazelDerivation {
     ;
 
   toolchainLines =
-    import ../cc/bazelrc.nix {
-      inherit (pkgs) lib;
-      names = ccToolchainNames;
-    }
+    ccSelection.lines
     + pkgs.lib.concatMapStrings (
       target:
       "build --extra_toolchains=@local_config_rust_${cfg.toolchainName}//:rust_toolchain_${

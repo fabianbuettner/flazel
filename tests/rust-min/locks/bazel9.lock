@@ -203,7 +203,7 @@
   "moduleExtensions": {
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "mDoO1RCPwP7wSbPwY5LsRAc3rvz3tZRqtUerJm4Qpms=",
+        "bzlTransitiveDigest": "Yk4IqE4UZhdJg6Badu/KyWBGlZqB1mmN4OmlEf6exNQ=",
         "usagesDigest": "UlQIg0+Y+bRq5Y0QxAVQyX/6aegtWH29EbC+hI8pu2U=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
@@ -211,7 +211,10 @@
             "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_cc_repo",
             "attributes": {
               "path": ".nix-bazel-deps/toolchains/default/cc",
-              "toolchain_name": "default"
+              "toolchain_name": "default",
+              "toolchains": [
+                "default"
+              ]
             }
           },
           "local_config_cc_default_deps": {

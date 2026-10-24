@@ -18,6 +18,9 @@
   pkgs,
   # Attrset of { name = cfg; } for each toolchain
   toolchains,
+  # null lets flazel decide; see lib/cc/bazelrc.nix.
+  defaultToolchain ? null,
+  hostToolchain ? null,
   caches,
   # Bazel package to use (defaults to latest stable)
   bazel ? pkgs.bazel,
@@ -32,13 +35,21 @@ let
   coreDevShell = import ../core/dev-shell.nix;
   inherit (import ../core/constants.nix) nixDepsDir;
 
-  # Get list of toolchain configs
-  toolchainList = pkgs.lib.attrValues toolchains;
-  toolchainNames = pkgs.lib.attrNames toolchains;
+  ccSelection = import ./bazelrc.nix {
+    inherit
+      pkgs
+      toolchains
+      defaultToolchain
+      hostToolchain
+      ;
+  };
 
-  # Use the first toolchain for PATH packages (gcc, binutils)
-  # All toolchains should have compatible host tools
-  primaryCfg = builtins.head toolchainList;
+  # PATH's gcc and binutils run here, so they are the host toolchain's.
+  pathName = if ccSelection.host != null then ccSelection.host else ccSelection.default;
+  pathPackages = pkgs.lib.optionals (pathName != null) [
+    toolchains.${pathName}.gcc
+    toolchains.${pathName}.binutils
+  ];
 
   # One tree per destination, merged HERE rather than in the dev shell hook, because
   # the contents are a pure function of the toolchain set. Assembling them per entry
@@ -59,8 +70,7 @@ let
     )}
   '';
 
-  # Each bazelNixDeps already carries both the suffixed and the unsuffixed name (e.g.
-  # boost and boost_default), so merging is what gives one unsuffixed winner.
+  # Every entry is suffixed with its toolchain (boost_default), so none collide.
   mergedLibs = pkgs.runCommand "flazel-cc-libs" { } ''
     mkdir -p $out
     ${pkgs.lib.concatStringsSep "\n" (
@@ -78,12 +88,8 @@ let
   ccDepsSetup = ''
     flazel_link ${mergedToolchains} ${nixDepsDir}/toolchains
     flazel_link ${mergedLibs} ${nixDepsDir}/libs
+    ${ccSelection.setup}
   '';
-
-  ccToolchainLines = import ./bazelrc.nix {
-    inherit (pkgs) lib;
-    names = toolchainNames;
-  };
 
   # Generate toolchain info for shell hook
   toolchainInfo = pkgs.lib.concatStringsSep ", " (
@@ -101,18 +107,16 @@ coreDevShell {
     lockfileMode
     ;
 
-  toolchainLines = ccToolchainLines;
+  toolchainLines = ccSelection.lines;
   extraDepsSetup = ccDepsSetup;
 
-  packages = [
-    primaryCfg.gcc
-    primaryCfg.binutils
-  ]
-  ++ extraPackages;
+  packages = pathPackages ++ extraPackages;
 
   shellHook = ''
-    echo "(CC toolchains: ${toolchainInfo})"
-    echo "  Use --platforms=@local_config_cc_<name>//:platform to select"
+    echo "(CC toolchains: ${toolchainInfo}; default: ${toString ccSelection.default}, exec tools: ${
+      if ccSelection.host != null then ccSelection.host else "none"
+    })"
+    echo "  Use --platforms=@local_config_cc_<name>//:platform to select another"
     ${shellHook}
   '';
 }
