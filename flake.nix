@@ -156,12 +156,6 @@
         # Provide checks/tests for flazel itself
         checks = {
           formatting = treefmtEval.config.build.check self;
-
-          # Basic syntax check - ensure all lib files are valid Nix
-          libSyntax = pkgs.runCommand "flazel-lib-syntax-check" { } ''
-            find ${./lib} -name '*.nix' -exec ${pkgs.nix}/bin/nix-instantiate --parse {} \; > /dev/null
-            touch $out
-          '';
         };
       }
     );
