@@ -169,12 +169,18 @@ rec {
 
       # Bazel writes into its repository cache and, from Bazel 9, refuses one
       # inside the workspace. It is content-addressed, so one per user serves
-      # every project; each prefetched cache is merged into it once.
+      # every project; each prefetched cache is merged in once as symlinks,
+      # never copies. The archives are already in the store, so dereferencing
+      # them duplicated every byte: measured at 20G over 28 merged generations,
+      # and a full copy per build inside a sandbox, where HOME is $TMPDIR.
+      # The targets are content-named fixed-output paths shared by every
+      # generation pinning that version, so the links hold across a collection,
+      # and the directory stays writable for a fetch no lockfile covers.
       _fz_repo_cache="''${XDG_CACHE_HOME:-$HOME/.cache}/flazel/repo-cache"
       _fz_seeded="$_fz_repo_cache/.seeded/$(basename ${caches.bazelRepoCache})"
       if [ ! -e "$_fz_seeded" ]; then
           mkdir -p "$_fz_repo_cache/.seeded"
-          cp -rnL ${caches.bazelRepoCache}/. "$_fz_repo_cache"
+          cp -rn ${caches.bazelRepoCache}/. "$_fz_repo_cache"
           chmod -R u+w "$_fz_repo_cache"
           touch "$_fz_seeded"
       fi
