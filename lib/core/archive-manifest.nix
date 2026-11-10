@@ -28,9 +28,11 @@
 pkgs.writers.writePython3Bin "flazel-lock-archives" { } ''
   import base64
   import json
+  import os
   import re
   import subprocess
   import sys
+  import tempfile
 
 
   def run_bazel(*args):
@@ -178,6 +180,36 @@ pkgs.writers.writePython3Bin "flazel-lock-archives" { } ''
       ):
           if block["url"] and block["sha256"]:
               entries[block["sha256"]] = block["url"]
+
+  # Keep only what a build fetches. The graph above lists every repo a ruleset
+  # could create and Bazel fetches them lazily, so crate_universe declares one
+  # per Cargo-lockfile crate while a build links a fraction: 780 declared here
+  # against 97 fetched. A fresh output base is required, not optional: this
+  # process has already run `bazel mod`, so the warm one holds every external
+  # repo and a probe against it would observe nothing.
+  targets = sys.argv[1:] or ["//..."]
+  probe = tempfile.mkdtemp(prefix="flazel-observe-")
+  base = tempfile.mkdtemp(prefix="flazel-obase-")
+  res = run_bazel(
+      "--output_base=" + base, "build", "--repository_cache=" + probe, *targets
+  )
+  if res.returncode != 0:
+      sys.stderr.write(res.stderr)
+      sys.exit("the observing build failed; pass its targets as arguments")
+  cadir = os.path.join(probe, "content_addressable", "sha256")
+  observed = set()
+  if os.path.isdir(cadir):
+      observed = {h.lower() for h in os.listdir(cadir)}
+  declared = len(entries)
+  entries = {s: u for s, u in entries.items() if s.lower() in observed}
+  if not entries:
+      sys.exit(
+          f"observed {len(observed)} archives, none of the {declared} declared; "
+          "refusing to write an empty manifest"
+      )
+  print(
+      f"observed {len(entries)} of {declared} declared archives", file=sys.stderr
+  )
 
   manifest = sorted(
       ({"url": url, "sha256": sha} for sha, url in entries.items()),
