@@ -414,7 +414,11 @@
             inherit variant;
             shell.toolchains.default = mingw64Cfg;
             script = ''
-              if bazel build //:probe_exec 2>$TMPDIR/err; then
+              # --keep_going because analysis can fail twice here: no exec
+              # toolchain, and a select() that cannot resolve without one.
+              # Bazel aborts at whichever surfaces first, so without it this
+              # grep races and the check flakes.
+              if bazel build --keep_going //:probe_exec 2>$TMPDIR/err; then
                 fail "built an exec tool without a toolchain for the build machine"
               fi
               grep -m1 -E 'Unable to find a CC toolchain|No matching toolchains found' $TMPDIR/err || true
