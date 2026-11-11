@@ -146,7 +146,8 @@
           shellHook = ''
             echo "flazel development shell"
             echo "  nix fmt    - format all files"
-            echo "  nix flake check - run checks"
+            echo "  nix flake check    - formatting"
+            echo "  nix run .#check-all - the test projects"
           '';
         };
 
@@ -156,6 +157,38 @@
         # Provide checks/tests for flazel itself
         checks = {
           formatting = treefmtEval.config.build.check self;
+        };
+
+        # The gate. Every test project under tests/ is a flake of its own,
+        # because that is how a consumer reaches flazel: through `flazel.url`
+        # and `flazel.lib`. A check defined here would reach flazel's internals
+        # instead and test less, and `nix flake check` cannot reach theirs,
+        # since each takes this flake as an input. So the gate is an app that
+        # enters each and runs its own checks, from the flazel root.
+        apps.check-all = {
+          type = "app";
+          program = toString (
+            pkgs.writeShellScript "flazel-check-all" ''
+              set -eu
+              projects=$(${pkgs.findutils}/bin/find tests -mindepth 2 -maxdepth 2 \
+                -name flake.nix -printf '%h\n' | ${pkgs.coreutils}/bin/sort)
+              # An empty glob would otherwise report success for nothing.
+              [ -n "$projects" ] || {
+                echo "no tests/*/flake.nix: run this from the flazel root" >&2
+                exit 1
+              }
+              failed=
+              for d in $projects; do
+                echo "=== $d"
+                (cd "$d" && nix flake check "$@") || failed="$failed $d"
+              done
+              [ -z "$failed" ] || {
+                echo "FAILED:$failed" >&2
+                exit 1
+              }
+              echo "all test projects passed"
+            ''
+          );
         };
       }
     );
