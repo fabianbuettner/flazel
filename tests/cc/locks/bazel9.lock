@@ -199,7 +199,7 @@
   "moduleExtensions": {
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "Yk4IqE4UZhdJg6Badu/KyWBGlZqB1mmN4OmlEf6exNQ=",
+        "bzlTransitiveDigest": "uOf4GE+itUriDexFJRJRDZ3Ysngbei35aeONx/ov8qE=",
         "usagesDigest": "hH5d2wbku3bUOXbuXJ41Ax9a95evihkC0YhwSQs2jqw=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
