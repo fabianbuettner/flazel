@@ -155,6 +155,12 @@
           compiler = "clang";
         };
 
+        # A linker that, unlike bfd, accepts --start-lib.
+        moldCfg = flazel.lib.cc.mkConfig {
+          inherit pkgs;
+          linker = "mold";
+        };
+
         # Fully static (musl) toolchain: the other axis of static-vs-dynamic.
         # Produces a binary with no dynamic dependencies at all.
         staticCfg = flazel.lib.cc.mkConfig {
@@ -814,6 +820,14 @@
             runTest = false;
             inherit variant;
           };
+          "tree-gcc${variant.suffix}" = mkCcCheck {
+            name = "flazel-cc-tree-gcc${variant.suffix}";
+            cfg = gccCfg;
+            pkg = "tree";
+            bin = "tree";
+            sharedLibs = [ "libmessage.so" ];
+            inherit variant;
+          };
           "selection${variant.suffix}" = mkSelection variant;
           "clang-check${variant.suffix}" = mkClangCheck variant;
           "test-toolchain${variant.suffix}" = mkTestToolchainCheck variant;
@@ -867,6 +881,39 @@
             bin = "shared";
             runTest = false;
             sharedLibs = [ "printer/libprinter.so" ];
+          };
+          # Generated sources reach the linker as an object file group, which
+          # must not be wrapped in --start-lib: bfd (gcc's default) rejects it.
+          tree-gcc = mkCcCheck {
+            name = "flazel-cc-tree-gcc";
+            cfg = gccCfg;
+            pkg = "tree";
+            bin = "tree";
+            sharedLibs = [ "libmessage.so" ];
+          };
+          tree-clang = mkCcCheck {
+            name = "flazel-cc-tree-clang";
+            cfg = clangCfg;
+            pkg = "tree";
+            bin = "tree";
+            sharedLibs = [ "libmessage.so" ];
+          };
+          tree-mold = mkCcCheck {
+            name = "flazel-cc-tree-mold";
+            cfg = moldCfg;
+            pkg = "tree";
+            bin = "tree";
+            sharedLibs = [ "libmessage.so" ];
+          };
+          tree-mingw32 = mkCcCheck {
+            name = "flazel-cc-tree-mingw32";
+            cfg = mingw32Cfg;
+            pkg = "tree";
+            bin = "tree";
+            sharedLibs = [ "message.dll" ];
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
           };
           mingw32 = mkCcCheck {
             name = "flazel-cc-mingw32";

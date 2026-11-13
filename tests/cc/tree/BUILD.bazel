@@ -1,0 +1,34 @@
+# A shared library built from generated sources: the linker gets its objects as
+# an object file group, which must land in the library.
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_shared_library", "cc_test")
+load(":generated_cc_library.bzl", "generated_cc_library")
+
+generated_cc_library(
+    name = "generated",
+    hdrs = ["message.h"],
+    text = "flazel cc ok",
+)
+
+cc_shared_library(
+    name = "message_shared",
+    shared_lib_name = select({
+        "@platforms//os:windows": "message.dll",
+        "//conditions:default": "libmessage.so",
+    }),
+    deps = [":generated"],
+)
+
+cc_binary(
+    name = "tree",
+    srcs = ["main.cc"],
+    dynamic_deps = [":message_shared"],
+    deps = [":generated"],
+)
+
+# linkstatic = False (the cc_test default) also links the library's own
+# shared object, the one link that takes the group without a dynamic_deps edge.
+cc_test(
+    name = "tree_test",
+    srcs = ["tree_test.cc"],
+    deps = [":generated"],
+)

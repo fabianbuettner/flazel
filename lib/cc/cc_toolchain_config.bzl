@@ -18,6 +18,7 @@ load(
     "flag_set",
     "tool",
     "tool_path",
+    "variable_with_value",
     "with_feature_set",
 )
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
@@ -76,6 +77,68 @@ _LINK_ACTIONS = [
     ACTION_NAMES.cpp_link_dynamic_library,
     ACTION_NAMES.cpp_link_nodeps_dynamic_library,
 ]
+
+def _link_input(type, flag):
+    return flag_group(
+        flags = [flag],
+        expand_if_equal = variable_with_value(name = "libraries_to_link.type", value = type),
+    )
+
+def _whole_archive(flag):
+    return flag_group(
+        flags = [flag],
+        expand_if_true = "libraries_to_link.is_whole_archive",
+        expand_if_equal = variable_with_value(name = "libraries_to_link.type", value = "static_library"),
+    )
+
+# Replaces Bazel's legacy libraries_to_link, which wraps object file groups
+# (generated sources) in --start-lib/--end-lib: ld.bfd rejects that, and other
+# linkers drop the objects from a shared library. This toolchain declares no
+# supports_start_end_lib, so groups link as plain objects. user_link_flags is
+# redefined so linkopts still follow the libraries, as with the legacy pair.
+def _link_inputs_features():
+    return [
+        feature(
+            name = "libraries_to_link",
+            flag_sets = [flag_set(
+                actions = _LINK_ACTIONS,
+                flag_groups = [
+                    flag_group(
+                        iterate_over = "libraries_to_link",
+                        expand_if_available = "libraries_to_link",
+                        flag_groups = [
+                            _whole_archive("-Wl,-whole-archive"),
+                            flag_group(
+                                flags = ["%{libraries_to_link.object_files}"],
+                                iterate_over = "libraries_to_link.object_files",
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "object_file_group",
+                                ),
+                            ),
+                            _link_input("object_file", "%{libraries_to_link.name}"),
+                            _link_input("interface_library", "%{libraries_to_link.name}"),
+                            _link_input("static_library", "%{libraries_to_link.name}"),
+                            _link_input("dynamic_library", "-l%{libraries_to_link.name}"),
+                            _link_input("versioned_dynamic_library", "-l:%{libraries_to_link.name}"),
+                            _whole_archive("-Wl,-no-whole-archive"),
+                        ],
+                    ),
+                ],
+            )],
+        ),
+        feature(
+            name = "user_link_flags",
+            flag_sets = [flag_set(
+                actions = _LINK_ACTIONS,
+                flag_groups = [flag_group(
+                    flags = ["%{user_link_flags}"],
+                    iterate_over = "user_link_flags",
+                    expand_if_available = "user_link_flags",
+                )],
+            )],
+        ),
+    ]
 
 # -fPIC for objects linked into shared libraries; executables still link
 # statically (no supports_dynamic_linker). Not on Windows, where -fPIC only
@@ -199,7 +262,7 @@ def _with_deps_root(ctx, flags):
 
 def _impl(ctx):
     parse_headers_action_configs, parse_headers_features = _parse_headers(ctx)
-    features = [
+    features = _link_inputs_features() + [
         feature(
             # Headers of external repositories (every nixpkgs library) are system
             # headers, on every Bazel version: Bazel 9's cc_library passes its
