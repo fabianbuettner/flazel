@@ -1,0 +1,21 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_verilator//verilator:defs.bzl", "verilator_cc_library")
+load("@rules_verilog//verilog:defs.bzl", "verilog_library")
+
+verilog_library(
+    name = "delay",
+    srcs = ["delay.sv"],
+    top_module = "delay",
+)
+
+verilator_cc_library(
+    name = "delay_rtl",
+    module = ":delay",
+    timing = True,
+)
+
+cc_test(
+    name = "delay_test",
+    srcs = ["delay_test.cc"],
+    deps = [":delay_rtl"],
+)

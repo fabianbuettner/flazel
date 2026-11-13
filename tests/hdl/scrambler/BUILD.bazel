@@ -1,0 +1,66 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_verilator//verilator:defs.bzl", "verilator_cc_library")
+load("@rules_verilog//verilog:defs.bzl", "verilog_library")
+
+verilog_library(
+    name = "scrambler",
+    srcs = ["scrambler.sv"],
+    top_module = "scrambler",
+)
+
+verilog_library(
+    name = "scrambler_mutant",
+    srcs = ["mutant/scrambler.sv"],
+    top_module = "scrambler",
+)
+
+verilator_cc_library(
+    name = "scrambler_rtl",
+    module = ":scrambler",
+)
+
+verilator_cc_library(
+    name = "scrambler_mutant_rtl",
+    module = ":scrambler_mutant",
+)
+
+# FST tracing compiles the runtime's FST writer against lz4 and zlib.
+verilator_cc_library(
+    name = "scrambler_fst_rtl",
+    module = ":scrambler",
+    trace_mode = "fst",
+)
+
+cc_library(
+    name = "scrambler_model",
+    hdrs = ["scrambler_model.h"],
+)
+
+cc_test(
+    name = "scrambler_test",
+    srcs = ["scrambler_test.cc"],
+    deps = [
+        ":scrambler_model",
+        ":scrambler_rtl",
+    ],
+)
+
+cc_test(
+    name = "scrambler_mutant_test",
+    srcs = ["scrambler_test.cc"],
+    local_defines = ["EXPECT_MISMATCH"],
+    deps = [
+        ":scrambler_model",
+        ":scrambler_mutant_rtl",
+    ],
+)
+
+cc_test(
+    name = "scrambler_fst_test",
+    srcs = ["scrambler_test.cc"],
+    deps = [
+        ":scrambler_fst_rtl",
+        ":scrambler_model",
+    ],
+)

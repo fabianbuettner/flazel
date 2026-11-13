@@ -7,6 +7,7 @@
 # Structure:
 #   lib/core/  - Language-agnostic core (BCR caching, generic derivations)
 #   lib/cc/    - C/C++ specific (toolchain, library repos)
+#   lib/hdl/   - HDL specific (Verilator module)
 #   lib/rust/  - Rust specific (toolchain, crate universe integration)
 #
 # Usage in consuming flakes:
@@ -90,6 +91,12 @@
         mkDevShell = withFlazelModule (import ./lib/cc/dev-shell.nix);
       };
 
+      # HDL specific library functions
+      hdlLib = {
+        # A Bazel module of a nixpkgs Verilator, for moduleOverrides
+        mkVerilatorModule = import ./lib/hdl/verilator-module.nix;
+      };
+
       # Rust specific library functions
       rustLib = {
         # Rust toolchain configuration
@@ -109,6 +116,7 @@
       # Expose library functions and rust-overlay for consumers
       lib = coreLib // {
         cc = ccLib;
+        hdl = hdlLib;
         rust = rustLib;
       };
 

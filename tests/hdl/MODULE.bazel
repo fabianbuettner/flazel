@@ -1,0 +1,19 @@
+module(
+    name = "flazel-hdl-test",
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "rules_verilator", version = "1.1.2")
+bazel_dep(name = "rules_verilog", version = "1.4.2")
+bazel_dep(name = "flazel")
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+# rules_verilator's verilator dependency comes from nixpkgs: the flake passes
+# flazel.lib.hdl.mkVerilatorModule as moduleOverrides.verilator.
+
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(nix_cc, "local_config_cc_default", "local_config_cc_default_deps")

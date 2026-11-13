@@ -1,0 +1,8 @@
+# Nix-generated toolchain config (created by nix develop / nix build)
+try-import .nix-bazel-deps/.bazelrc.nix
+
+# Hermeticity
+build --incompatible_strict_action_env
+
+# Test output
+test --test_output=errors

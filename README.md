@@ -25,6 +25,10 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
 - **Cross-compilation**: `aarch64-apple-ios`, `aarch64-unknown-linux-musl`, anything rustc supports
 - **Dev shell**: rustc, cargo, clippy, rustfmt, nextest, cargo-llvm-cov, cargo-deny, bacon
 
+### SystemVerilog
+
+- **Verilator from nixpkgs** behind the upstream `rules_verilator` and `rules_verilog`: RTL becomes a `cc_library`, tested with ordinary `cc_test`s. Tracing (VCD, FST) and `--timing` work. See [SystemVerilog with Verilator](#systemverilog-with-verilator)
+
 ### Shared
 
 - **Offline builds**: BCR modules (and vendored crate archives) pre-fetched into the Nix store. After initial setup, the network is optional.
@@ -250,6 +254,30 @@ caches = flazel.lib.mkBcrCaches {
 
 Regenerate it alongside `MODULE.bazel.lock` after a dependency change; a stale
 manifest fails loudly (the offline build names the missing archive).
+
+## SystemVerilog with Verilator
+
+`rules_verilator` depends on a BCR module `verilator` that compiles Verilator
+from source. `flazel.lib.hdl.mkVerilatorModule` builds a module of that name
+from a nixpkgs Verilator instead, and `moduleOverrides` puts it in its place:
+
+```nix
+moduleOverrides.verilator = flazel.lib.hdl.mkVerilatorModule {
+  inherit pkgs;
+  inherit (pkgs) verilator;
+};
+```
+
+Pass it to `mkDevShell` and `mkDerivation` alike. `MODULE.bazel` declares only
+the rule sets:
+
+```starlark
+bazel_dep(name = "rules_verilator", version = "1.1.2")
+bazel_dep(name = "rules_verilog", version = "1.4.2")
+```
+
+Older `rules_verilator` releases report a failed Verilator run as success.
+Complete working example, RTL checked against a C++ model: [`tests/hdl/`](tests/hdl/).
 
 ## Bazel versions
 
