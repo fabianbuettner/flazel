@@ -15,7 +15,7 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
 - **Hardened by default**: `_FORTIFY_SOURCE=3`, stack protectors, GLIBCXX assertions, split DWARF. Opt out per feature if you dare.
 - **Sanitizers**: `asan`, `ubsan`, `tsan` as `--features=` flags. Mutual exclusion enforced. ASan+UBSan layering works.
 - **Header checks**: `layering_check` (clang) and `parse_headers` (clang, GCC 15+). Find your missing `deps` and non-self-contained headers before CI does.
-- **Build tuning**: `thin_lto`, `gc_sections`, `hidden_visibility`, `gdb_index`
+- **Build tuning**: `lto`, `gc_sections`, `hidden_visibility`, `gdb_index`
 - **Coverage**: gcov and llvm-cov via `bazel coverage`
 
 ### Rust
@@ -623,7 +623,7 @@ Bazel `--features=` flags wired to compiler/linker options.
 | `asan` | `-fsanitize=address -fno-omit-frame-pointer` | `provides=["sanitizer"]` |
 | `ubsan` | `-fsanitize=undefined` | layers with asan or tsan |
 | `tsan` | `-fsanitize=thread` | `provides=["sanitizer"]` |
-| `thin_lto` | `-flto=thin` / `-flto=auto` | |
+| `lto` | `-flto=thin` / `-flto=auto` | |
 | `hidden_visibility` | `-fvisibility=hidden` | |
 | `freestanding` | `-ffreestanding` | usually set via `target.freestanding = true` |
 | `template_diagnostics` | `-fdiagnostics-show-template-tree` | Clang only |

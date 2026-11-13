@@ -460,7 +460,7 @@ def _impl(ctx):
             ],
         ),
         feature(
-            name = "thin_lto",
+            name = "lto",
             flag_sets = [
                 flag_set(
                     actions = _COMPILE_ACTIONS,

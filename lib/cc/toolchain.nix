@@ -410,6 +410,10 @@ let
       exec "$REAL_GCOV" "$@"
     '';
 
+  # GNU ar and nm cannot see symbols inside LTO bitcode members without the
+  # compiler's plugin: an archive indexed blind links undefined. LLVM's need none.
+  ltoPlugin = "${effectiveGcc.cc}/libexec/gcc/${targetTriple}/${gccVersion}/liblto_plugin.so";
+
   # Header parsing passes -c, which clang reports unused under -fsyntax-only.
   # GCC reports `#pragma once` in the parsed header instead, which only GCC 15
   # can silence, so earlier GCC does not offer parse_headers at all.
@@ -479,6 +483,17 @@ let
 
         for name in gcc g++ cpp; do link_prefixed "${toolchainGcc}/bin" "$name"; done
         for name in ar nm objdump objcopy strip ld dwp; do link_prefixed "${binutils}/bin" "$name"; done
+
+        # The plugin must precede ar's operation, so it cannot be a toolchain flag.
+        if [ -e "${ltoPlugin}" ]; then
+          for name in ar nm; do
+            real=$(readlink -f $out/bin/$name)
+            rm $out/bin/$name
+            printf '#!%s\nexec "%s" --plugin "%s" "$@"\n' \
+              "${pkgs.runtimeShell}" "$real" "${ltoPlugin}" > $out/bin/$name
+            chmod +x $out/bin/$name
+          done
+        fi
 
         # gcov wrapper for Bazel coverage compatibility (see mkGcovWrapper)
         if [ -e "${effectiveGcc.cc}/bin/${targetTriple}-gcov" ]; then

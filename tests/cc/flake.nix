@@ -861,6 +861,18 @@
             cfg = clangCfg;
             bazelFlags = "--features=asan";
           };
+          # An LTO archive's index needs the compiler plugin, and the feature
+          # name must not collide with Bazel's native ThinLTO.
+          lto-gcc = mkCcCheck {
+            name = "flazel-cc-lto-gcc";
+            cfg = gccCfg;
+            bazelFlags = "--features=lto";
+          };
+          lto-clang = mkCcCheck {
+            name = "flazel-cc-lto-clang";
+            cfg = clangCfg;
+            bazelFlags = "--features=lto";
+          };
           static = mkCcCheck {
             name = "flazel-cc-static";
             cfg = staticCfg;
