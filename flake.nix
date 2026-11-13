@@ -138,6 +138,9 @@
             includes = [
               "BUILD"
               "BUILD.bazel"
+              "*/BUILD"
+              "*/BUILD.bazel"
+              "*/MODULE.bazel"
               "MODULE.bazel"
               "*.bzl"
             ];
