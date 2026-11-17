@@ -26,6 +26,34 @@ nix_cc.toolchain(name = "default")
 nix_cc.toolchain(name = "clang")
 nix_cc.toolchain(name = "musl")
 nix_cc.package(name = "headers_probe")
+
+# One package with pkg-config modules, declared once per outcome (the pkgconfig_*
+# targets in BUILD.bazel).
+nix_cc.package(
+    name = "pcprobe",
+    pkgconfig = ["pcprobe"],
+)
+nix_cc.package(name = "pcprobe_plain")
+nix_cc.package(
+    name = "pcprobe_foreign",
+    pkgconfig = ["pcprobe-foreign"],
+)
+nix_cc.package(
+    name = "pcprobe_missing",
+    pkgconfig = ["nosuch"],
+)
+nix_cc.package(
+    name = "pcprobe_only_foreign",
+    pkgconfig = ["pcprobe-only-foreign"],
+)
+nix_cc.package(
+    name = "pcprobe_unplaced",
+    pkgconfig = ["pcprobe-unplaced"],
+)
+nix_cc.package(
+    name = "pcprobe_unreadable",
+    pkgconfig = ["pcprobe-unreadable"],
+)
 nix_cc.package(name = "zlib")
 use_repo(
     nix_cc,
@@ -34,5 +62,12 @@ use_repo(
     "local_config_cc_default",
     "local_config_cc_default_deps",
     "local_config_cc_musl",
+    "pcprobe",
+    "pcprobe_foreign",
+    "pcprobe_missing",
+    "pcprobe_only_foreign",
+    "pcprobe_plain",
+    "pcprobe_unplaced",
+    "pcprobe_unreadable",
     "zlib",
 )

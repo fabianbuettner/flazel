@@ -76,6 +76,42 @@ bazel build //...  # incremental, cached
 bazel test //...
 ```
 
+## Nixpkgs libraries in Bazel
+
+Each entry of `nixpkgsLibs` becomes a Bazel repository once `MODULE.bazel` declares it:
+
+```starlark
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.package(name = "zlib")
+nix_cc.package(
+    name = "poppler",
+    libs = ["poppler"],
+    pkgconfig = ["poppler"],
+)
+use_repo(nix_cc, "poppler", "zlib")
+```
+
+`@poppler//:poppler` is then a `cc_library` over the package's headers and shared libraries.
+
+- `name`: the key in `nixpkgsLibs`, and the repository's name.
+- `libs`: the shared libraries to link, without the `lib` prefix or extension. Empty links
+  every top-level `.so` the package ships, each of which also lands in `DT_NEEDED`.
+- `pkgconfig`: pkg-config modules whose own `-I` directories join `include/` on the include
+  path. `poppler.pc` names `include/poppler`, where poppler's core headers include each other
+  by bare name. A directory inside the package is kept, `lib/` included (glib's
+  `lib/glib-2.0/include`); one in another store path is dropped, since that package's own
+  repository provides it (cairo.pc names freetype's). A module the package does not ship, one
+  pkgconf cannot read, one naming only directories outside the package, or one naming a
+  directory inside it but under neither `include/` nor `lib/` fails the library's analysis,
+  naming the module.
+
+Modules are named, not taken from every `.pc` file a package ships, because one package's
+modules can disagree: poppler's `cpp` and `glib` bindings each ship a `poppler-document.h`, and
+a union of their directories would pick one silently.
+
+Without `pkgconfig` the generated target is unchanged: `include/` alone, as before the
+attribute existed.
+
 ## Quick Start (Rust)
 
 ```nix

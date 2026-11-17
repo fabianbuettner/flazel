@@ -142,13 +142,134 @@
           echo '#define PROBE_SUFFIX "ok"' > $out/include/probe/Suffix
         '';
 
+        # A package split like glib: headers and .pc files in dev, a configuration header
+        # under out's lib/ that a module's Cflags name. Its modules name, in turn, their own
+        # directories; their own and another store path's (zlib's); only another's; one
+        # inside the package under neither include/ nor lib/; their own through pcfiledir;
+        # and one pkgconf cannot read.
+        pkgconfigProbe =
+          pkgs.runCommand "flazel-pkgconfig-probe"
+            {
+              outputs = [
+                "out"
+                "dev"
+              ];
+            }
+            ''
+              mkdir -p $dev/include/pcprobe $dev/share/pcprobe $dev/lib/pkgconfig $out/lib/pcprobe/include
+              echo '#define PCPROBE_BARE "flazel pkgconfig"' > $dev/include/pcprobe/bare.h
+              echo '#define PCPROBE_CONFIG "ok"' > $out/lib/pcprobe/include/pcprobe_config.h
+              module() {
+                {
+                  echo "prefix=$out"
+                  echo "includedir=$dev/include"
+                  echo "libdir=$out/lib"
+                  echo "datadir=$dev/share"
+                  echo "Name: $1"
+                  echo "Description: flazel pkg-config probe"
+                  echo "Version: 1"
+                  # Another package's module, which is not here to read.
+                  echo "Requires: zlib"
+                  echo "Cflags: $2"
+                } > $dev/lib/pkgconfig/$1.pc
+              }
+              module pcprobe '-I''${includedir}/pcprobe -I''${libdir}/pcprobe/include'
+              module pcprobe-foreign '-I''${includedir}/pcprobe -I${pkgs.zlib.dev}/include'
+              module pcprobe-only-foreign '-I${pkgs.zlib.dev}/include'
+              module pcprobe-unplaced '-I''${datadir}/pcprobe'
+              # Located relative to its own file, as plutovg's is.
+              {
+                echo 'prefix=''${pcfiledir}/../..'
+                echo 'includedir=''${prefix}/include'
+                echo 'Name: pcprobe-relative'
+                echo 'Description: flazel pkg-config probe'
+                echo 'Version: 1'
+                echo 'Cflags: -I''${includedir}/pcprobe'
+              } > $dev/lib/pkgconfig/pcprobe-relative.pc
+              # A dependency field pkgconf resolves and the description does not strip.
+              {
+                echo 'Name: pcprobe-unreadable'
+                echo 'Description: flazel pkg-config probe'
+                echo 'Version: 1'
+                echo 'Requires.internal: flazel-no-such-module'
+                echo "Cflags: -I$dev/include/pcprobe"
+              } > $dev/lib/pkgconfig/pcprobe-unreadable.pc
+            '';
+
         gccCfg = flazel.lib.cc.mkConfig {
           inherit pkgs;
           nixpkgsLibs = {
             headers_probe = headersProbe;
             zlib = pkgs.zlib;
+            # One package, declared five ways in MODULE.bazel.
+            pcprobe = pkgconfigProbe;
+            pcprobe_plain = pkgconfigProbe;
+            pcprobe_foreign = pkgconfigProbe;
+            pcprobe_missing = pkgconfigProbe;
+            pcprobe_only_foreign = pkgconfigProbe;
+            pcprobe_unplaced = pkgconfigProbe;
+            pcprobe_unreadable = pkgconfigProbe;
           };
         };
+
+        # What the generated repo records for each module, in the dynamic and the static
+        # layout, and where the static one puts the lib/ directory.
+        pkgconfigDescription =
+          let
+            repo =
+              static:
+              flazel.lib.cc.mkNixpkgsRepo {
+                inherit pkgs static;
+                name = "pcprobe";
+                pkg = pkgconfigProbe;
+              };
+            dynamicRepo = repo false;
+            staticRepo = repo true;
+            expected = builtins.toJSON {
+              pcprobe = {
+                includes = [
+                  "include/pcprobe"
+                  "lib/pcprobe/include"
+                ];
+                foreign = [ ];
+                unplaced = [ ];
+              };
+              pcprobe-foreign = {
+                includes = [ "include/pcprobe" ];
+                foreign = [ "${pkgs.zlib.dev}/include" ];
+                unplaced = [ ];
+              };
+              pcprobe-only-foreign = {
+                includes = [ ];
+                foreign = [ "${pkgs.zlib.dev}/include" ];
+                unplaced = [ ];
+              };
+              pcprobe-unplaced = {
+                includes = [ ];
+                foreign = [ ];
+                unplaced = [ "${pkgconfigProbe.dev}/share/pcprobe" ];
+              };
+              pcprobe-relative = {
+                includes = [ "include/pcprobe" ];
+                foreign = [ ];
+                unplaced = [ ];
+              };
+              pcprobe-unreadable = {
+                unreadable = true;
+              };
+            };
+          in
+          pkgs.runCommand "flazel-cc-pkgconfig-description" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            failed=0
+            fail() { echo "FAIL: $*" >&2; failed=1; }
+            echo '${expected}' | jq -S . > expected.json
+            for r in ${dynamicRepo} ${staticRepo}; do
+              jq -S . $r/pkgconfig.json > got.json
+              diff -u expected.json got.json || fail "$r/pkgconfig.json"
+              [ -e $r/lib/pcprobe/include/pcprobe_config.h ] || fail "$r has no lib/pcprobe/include"
+            done
+            [ "$failed" = 0 ] && echo ok > $out
+          '';
 
         clangCfg = flazel.lib.cc.mkConfig {
           inherit pkgs;
@@ -575,6 +696,44 @@
               ''
           );
 
+        # Each package's include path as the repository rule wrote it, and the two modules
+        # it must refuse, each naming the module.
+        pkgconfigRule = mkShellCheck {
+          name = "pkgconfig-rule";
+          variant = variants.default;
+          shell.toolchains.default = gccCfg;
+          script = ''
+            bazel build //:pkgconfig_derived //:pkgconfig_plain //:pkgconfig_foreign || fail "a package with usable modules did not build"
+            ext=$(bazel info output_base)/external
+            includes() {
+              local attrs
+              attrs=$(find "$ext" -maxdepth 2 -path "*[+~]$1_default/package_attrs.bzl" | head -1)
+              [ -n "$attrs" ] || { echo "?"; return; }
+              sed -n 's/^INCLUDES = //p' "$attrs"
+            }
+            expect() {
+              local got
+              got=$(includes "$1")
+              echo "$1: $got"
+              [ "$got" = "$2" ] || fail "$1: INCLUDES is $got, not $2"
+            }
+            expect pcprobe '["include", "include/pcprobe", "lib/pcprobe/include"]'
+            expect pcprobe_plain '["include"]'
+            expect pcprobe_foreign '["include", "include/pcprobe"]'
+            refused() {
+              if bazel build "$1" 2>$TMPDIR/err; then
+                fail "$1 built"
+              fi
+              echo "$1: $(grep -m1 -oF "$2" $TMPDIR/err || true)"
+              grep -qF "$2" $TMPDIR/err || fail "$1: the error does not say: $2"
+            }
+            refused //:pkgconfig_missing "pcprobe_missing ships no pkg-config module 'nosuch'"
+            refused //:pkgconfig_only_foreign "pcprobe_only_foreign's pkg-config module 'pcprobe-only-foreign' names only -I directories outside the package"
+            refused //:pkgconfig_unplaced "pcprobe_unplaced's pkg-config module 'pcprobe-unplaced' names -I directories inside the package but under neither include/ nor lib/"
+            refused //:pkgconfig_unreadable "pkgconf cannot read pcprobe_unreadable's pkg-config module 'pcprobe-unreadable'"
+          '';
+        };
+
         # A host toolchain MODULE.bazel does not declare fails, naming it.
         undeclaredDefault = mkShellCheck {
           name = "undeclared-default";
@@ -991,6 +1150,17 @@
           cross-default = crossDefault;
           cross-only = mkCrossOnly variants.default;
           missing-library = missingLibrary;
+          pkgconfig-rule = pkgconfigRule;
+          pkgconfig-description = pkgconfigDescription;
+          # A pkg-config module's directories reach the compiler, lib/ included.
+          pkgconfig = mkCcCheck {
+            name = "flazel-cc-pkgconfig";
+            cfg = gccCfg;
+            pkg = "";
+            bin = "pkgconfig_derived";
+            expect = "flazel pkgconfig ok";
+            runTest = false;
+          };
           marker-flip = mkMarkerFlip variants.default;
           no-toolchain = noToolchain;
           path-tools = pathTools;

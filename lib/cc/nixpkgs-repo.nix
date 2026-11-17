@@ -37,9 +37,11 @@ let
   # instead"), and not this build's to check.
   packageDecl = ''package(default_visibility = ["//visibility:public"], features = ["-parse_headers"])'';
 
-  # Header glob shared by every generated cc_library (dynamic, header-only, static).
-  # No extension filter: headers include .inc, .def and extensionless files.
-  hdrsGlob = ''glob(["include/**"], allow_empty = True)'';
+  # Header glob shared by every generated cc_library (dynamic, header-only, static):
+  # include/ and any other include directory the consumer's pkg-config modules name
+  # (glib's lib/glib-2.0/include). No extension filter: headers include .inc, .def and
+  # extensionless files.
+  hdrsGlob = ''glob(["include/**"] + [d + "/**" for d in INCLUDES], allow_empty = True)'';
 
   # Check if a package is a library (has a lib/ with archives).
   isLibrary =
@@ -55,6 +57,95 @@ let
   # Filter to only include actual libraries
   transitiveDeps = if static then builtins.filter isLibrary (getTransitiveDeps pkg) else [ ];
 
+  # Every output a pkg-config file of this package can describe, own -I directories included.
+  ownOutputs = pkgs.lib.unique [
+    devPkg
+    libPkg
+    (pkg.out or pkg)
+  ];
+
+  # Describe each pkg-config module the package ships in pkgconfig.json: the -I directories
+  # its own Cflags name, as `includes` relative to this repo when they lie under the
+  # package's include/ or lib/, as `foreign` when they lie in another store path, and as
+  # `unplaced` when they lie in the package but under neither. The repository rule picks
+  # the modules a consumer names; Nix cannot know them. Requires lines are dropped before
+  # pkgconf reads a file: they name other packages, whose .pc files are not here and whose
+  # directories come from those packages' own repos.
+  #
+  # A lib/ directory is placed in the repo where the dynamic layout already has it, through
+  # the lib symlink; the static layout's lib/ holds only the merged archive, so it is linked.
+  describePkgconfig = ''
+    pcdir=$TMPDIR/pkgconfig
+    mkdir -p "$pcdir"
+    for d in ${
+      pkgs.lib.concatMapStringsSep " " (o: "${o}/lib/pkgconfig ${o}/share/pkgconfig") ownOutputs
+    }; do
+      [ -d "$d" ] || continue
+      for pc in "$d"/*.pc; do
+        [ -e "$pc" ] || continue
+        module=$(basename "$pc" .pc)
+        [ -e "$pcdir/$module.pc" ] && continue
+        grep -vE '^Requires(\.private)?[[:space:]]*:' "$pc" > "$pcdir/$module.pc" || true
+        echo "$d" > "$pcdir/$module.pcfiledir"
+      done
+    done
+
+    json_list() {
+      local sep="" item
+      printf '['
+      for item in "$@"; do
+        printf '%s"%s"' "$sep" "$item"
+        sep=", "
+      done
+      printf ']'
+    }
+
+    {
+      printf '{'
+      msep=""
+      for pc in "$pcdir"/*.pc; do
+        [ -e "$pc" ] || continue
+        module=$(basename "$pc" .pc)
+        # A file pkgconf cannot read is recorded, not fatal: only a consumer naming the
+        # module has a reason to fail.
+        # pkgconf would read pcfiledir as the copy's directory; it is the original's.
+        if ! flags=$(PKG_CONFIG_PATH="$pcdir" PKG_CONFIG_SYSTEM_INCLUDE_PATH="" \
+          pkgconf --env-only --keep-system-cflags --define-variable=pcfiledir="$(cat "$pcdir/$module.pcfiledir")" \
+          --cflags-only-I "$module" 2>/dev/null); then
+          printf '%s"%s": {"unreadable": true}' "$msep" "$module"
+          msep=", "
+          continue
+        fi
+        includes=() foreign=() unplaced=()
+        for flag in $flags; do
+          dir=$(realpath -m -s "''${flag#-I}")
+          case "$dir" in
+            ${devPkg}/include | ${devPkg}/include/*)
+              rel="include''${dir#${devPkg}/include}" ;;
+            ${libPkg}/lib | ${libPkg}/lib/*)
+              rel="lib''${dir#${libPkg}/lib}"
+              if [ -e "$dir" ] && [ ! -e "$out/$rel" ]; then
+                mkdir -p "$(dirname "$out/$rel")"
+                ln -s "$dir" "$out/$rel"
+              fi ;;
+            ${pkgs.lib.concatMapStringsSep " | " (o: "${o} | ${o}/*") ownOutputs})
+              unplaced+=("$dir"); continue ;;
+            *)
+              foreign+=("$dir"); continue ;;
+          esac
+          case " ''${includes[*]} " in
+            *" $rel "*) ;;
+            *) includes+=("$rel") ;;
+          esac
+        done
+        printf '%s"%s": {"includes": %s, "foreign": %s, "unplaced": %s}' "$msep" "$module" \
+          "$(json_list "''${includes[@]}")" "$(json_list "''${foreign[@]}")" "$(json_list "''${unplaced[@]}")"
+        msep=", "
+      done
+      printf '}\n'
+    } > $out/pkgconfig.json
+  '';
+
   # Bazel stages a `srcs` .so into _solib_x86_64/ and links dependents with a relative
   # $ORIGIN runpath, which resolves only at the depth it assumes. Store paths are
   # immutable, so naming the directory outright always resolves; DT_RUNPATH is ordered,
@@ -65,7 +156,7 @@ let
   # case can drop it without a second copy of the rule.
   dynamicBuildContent = linkoptsAttr: ''
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
-    load(":shared_libs.bzl", "SHARED_LIB_PATTERNS")
+    load(":package_attrs.bzl", "INCLUDES", "SHARED_LIB_PATTERNS")
 
     ${packageDecl}
 
@@ -78,7 +169,7 @@ let
         # not be added to DT_NEEDED. A consumer that names its libs gets only those, so a
         # package's unused siblings stop contributing DT_NEEDED entries and global symbols.
         srcs = glob(SHARED_LIB_PATTERNS, allow_empty = True),
-        includes = ["include"],${linkoptsAttr}
+        includes = INCLUDES,${linkoptsAttr}
     )
   '';
 
@@ -144,6 +235,7 @@ let
       cat > $out/BUILD.bazel <<'STATICEOF'
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
     load("@rules_cc//cc:cc_import.bzl", "cc_import")
+    load(":package_attrs.bzl", "INCLUDES")
 
     ${packageDecl}
 
@@ -155,7 +247,7 @@ let
     cc_library(
         name = "${name}",
         hdrs = ${hdrsGlob},
-        includes = ["include"],
+        includes = INCLUDES,
         deps = [":${name}_archive"],
     )
     STATICEOF
@@ -163,13 +255,14 @@ let
       # Header-only library - just a cc_library with includes.
       cat > $out/BUILD.bazel <<'HEADERONLY'
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
+    load(":package_attrs.bzl", "INCLUDES")
 
     ${packageDecl}
 
     cc_library(
         name = "${name}",
         hdrs = ${hdrsGlob},
-        includes = ["include"],
+        includes = INCLUDES,
     )
     HEADERONLY
     fi
@@ -179,7 +272,10 @@ pkgs.runCommand "nixpkgs-${name}"
   {
     # ar/ranlib to merge the static archive (build-time host tools; the archive
     # format is arch-independent, so host binutils handles musl/cross archives).
-    nativeBuildInputs = pkgs.lib.optionals static [ pkgs.binutils ];
+    nativeBuildInputs = [
+      pkgs.buildPackages.pkgconf-unwrapped
+    ]
+    ++ pkgs.lib.optionals static [ pkgs.binutils ];
   }
   ''
     mkdir -p $out
@@ -217,4 +313,6 @@ pkgs.runCommand "nixpkgs-${name}"
           ${generateDynamicBuild}
         ''
     }
+
+    ${describePkgconfig}
   ''

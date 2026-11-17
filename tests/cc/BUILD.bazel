@@ -47,3 +47,91 @@ platform(
 )
 
 script_test(name = "script_test")
+
+# A package's pkg-config modules on its include path (nix_cc.package pkgconfig): one
+# package, declared once per outcome in MODULE.bazel. The sources are generated so the
+# whole case stays in this file.
+genrule(
+    name = "pkgconfig_derived_src",
+    outs = ["pkgconfig_derived.cc"],
+    cmd = """cat > $@ <<'EOF'
+#include <bare.h>
+#include <pcprobe_config.h>
+#include <cstdio>
+int main() { std::puts(PCPROBE_BARE " " PCPROBE_CONFIG); }
+EOF""",
+)
+
+# Both of its module's directories by bare name: include/pcprobe, and lib/pcprobe/include
+# as glib's lib/glib-2.0/include.
+cc_binary(
+    name = "pkgconfig_derived",
+    srcs = [":pkgconfig_derived_src"],
+    deps = ["@pcprobe"],
+)
+
+genrule(
+    name = "pkgconfig_plain_src",
+    outs = ["pkgconfig_plain.cc"],
+    cmd = """cat > $@ <<'EOF'
+#if __has_include(<bare.h>)
+#error "a package without pkgconfig has more than include/ on its path"
+#endif
+#include <pcprobe/bare.h>
+#include <cstdio>
+int main() { std::puts(PCPROBE_BARE); }
+EOF""",
+)
+
+# No pkgconfig: include/ alone.
+cc_binary(
+    name = "pkgconfig_plain",
+    srcs = [":pkgconfig_plain_src"],
+    deps = ["@pcprobe_plain"],
+)
+
+genrule(
+    name = "pkgconfig_bare_src",
+    outs = ["pkgconfig_bare.cc"],
+    cmd = """cat > $@ <<'EOF'
+#include <bare.h>
+#include <cstdio>
+int main() { std::puts(PCPROBE_BARE); }
+EOF""",
+)
+
+# A module naming its own directory and zlib's: its own is kept, zlib's dropped.
+cc_binary(
+    name = "pkgconfig_foreign",
+    srcs = [":pkgconfig_bare_src"],
+    deps = ["@pcprobe_foreign"],
+)
+
+# Each fails analysis, naming the module.
+cc_binary(
+    name = "pkgconfig_missing",
+    srcs = [":pkgconfig_bare_src"],
+    tags = ["manual"],
+    deps = ["@pcprobe_missing"],
+)
+
+cc_binary(
+    name = "pkgconfig_only_foreign",
+    srcs = [":pkgconfig_bare_src"],
+    tags = ["manual"],
+    deps = ["@pcprobe_only_foreign"],
+)
+
+cc_binary(
+    name = "pkgconfig_unplaced",
+    srcs = [":pkgconfig_bare_src"],
+    tags = ["manual"],
+    deps = ["@pcprobe_unplaced"],
+)
+
+cc_binary(
+    name = "pkgconfig_unreadable",
+    srcs = [":pkgconfig_bare_src"],
+    tags = ["manual"],
+    deps = ["@pcprobe_unreadable"],
+)
