@@ -1,0 +1,25 @@
+## flazel@_:
+# <builtin>
+local_repository(
+  name = "flazel~",
+  path = "/nix/store/HASH-source",
+)
+# Rule flazel~ instantiated at (most recent call last):
+#   <builtin> in <toplevel>
+
+## platforms@_:
+# <builtin>
+http_archive(
+  name = "platforms",
+  urls = ["https://github.com/bazelbuild/platforms/releases/download/1.0.0/platforms-1.0.0.tar.gz"],
+  integrity = "",
+  strip_prefix = "",
+  patches = [],
+  patch_args = ["-p0"],
+  patch_cmds = [],
+)
+# Rule platforms instantiated at (most recent call last):
+#   <builtin> in <toplevel>
+# Rule http_archive defined at (most recent call last):
+#   OUTPUT_BASE/external/bazel_tools/tools/build_defs/repo/http.bzl:387:31 in <toplevel>
+

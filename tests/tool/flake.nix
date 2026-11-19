@@ -86,7 +86,17 @@
 
         # The sandbox cannot run `nix develop`; enter each shell by its hook.
         nixShim = pkgs.writeShellScriptBin "nix" ''
-          [ "$1" = develop ] && [ "$3" = --command ] || {
+          [ "$1" = develop ] || {
+            echo "nix shim: unsupported: $*" >&2
+            exit 2
+          }
+          if [ "$2" = --command ]; then
+            export PATH="${variants.default.bazel}/bin:$PATH"
+            . ${pkgs.writeText "hook-default" (mkShell variants.default).shellHook} >/dev/null
+            shift 2
+            exec "$@"
+          fi
+          [ "$3" = --command ] || {
             echo "nix shim: unsupported: $*" >&2
             exit 2
           }
@@ -155,7 +165,9 @@
               fi
               bazel shutdown
 
-              if ! cmp -s MODULE.bazel.lock $TMPDIR/root.lock; then
+              # The app refreshes the default lock on purpose; what no step may do is
+              # leave it in another Bazel version's format.
+              if [ "$(jq .lockFileVersion MODULE.bazel.lock)" != "$(jq .lockFileVersion $TMPDIR/root.lock)" ]; then
                 echo "FAIL: MODULE.bazel.lock rewritten, now format $(jq .lockFileVersion MODULE.bazel.lock)" >&2
                 failed=1
               fi

@@ -1,0 +1,28 @@
+module(
+    name = "flazel-archive-override-test",
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "flazel")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+# A module already in the graph, taken from an archive instead of the registry:
+# the lockfile records no source for it, so only the manifest makes it offline.
+archive_override(
+    module_name = "platforms",
+    integrity = "sha256-M4TrHDB2JwT7445EAgThFBVAhsj8iowuPihEECjAGag=",
+    urls = ["https://github.com/bazelbuild/platforms/releases/download/1.0.0/platforms-1.0.0.tar.gz"],
+)
+
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(
+    nix_cc,
+    "local_config_cc_default",
+    "local_config_cc_default_deps",
+)

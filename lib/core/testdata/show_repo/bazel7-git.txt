@@ -1,0 +1,24 @@
+## flazel@_:
+# <builtin>
+local_repository(
+  name = "flazel~",
+  path = "/nix/store/HASH-source",
+)
+# Rule flazel~ instantiated at (most recent call last):
+#   <builtin> in <toplevel>
+
+## platforms@_:
+# <builtin>
+git_repository(
+  name = "platforms",
+  remote = "https://github.com/bazelbuild/platforms.git",
+  commit = "ab99943ab6bed53cff461a3afa99fc79d31e4351",
+  init_submodules = False,
+  recursive_init_submodules = False,
+  patch_args = ["-p0"],
+)
+# Rule platforms instantiated at (most recent call last):
+#   <builtin> in <toplevel>
+# Rule git_repository defined at (most recent call last):
+#   OUTPUT_BASE/external/bazel_tools/tools/build_defs/repo/git.bzl:189:33 in <toplevel>
+

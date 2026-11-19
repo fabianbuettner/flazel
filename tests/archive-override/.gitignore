@@ -1,0 +1,4 @@
+/bazel-*
+/.bazel-cache/
+/.nix-bazel-deps/
+/result

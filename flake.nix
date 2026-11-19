@@ -168,6 +168,14 @@
         # Provide checks/tests for flazel itself
         checks = {
           formatting = treefmtEval.config.build.check self;
+
+          # flazel-lock-archives' parsing, over recorded Bazel output: the
+          # sandbox has no network for Bazel to produce it.
+          archive-manifest = pkgs.runCommand "flazel-archive-manifest-test" { } ''
+            ${pkgs.python3}/bin/python3 -I ${./lib/core/archive_manifest_test.py} \
+              ${./lib/core/archive_manifest.py} ${./lib/core/testdata}
+            touch $out
+          '';
         };
 
         # The gate. Every test project under tests/ is a flake of its own,

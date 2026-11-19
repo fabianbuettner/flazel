@@ -16,14 +16,10 @@
 #       { name = "foo"; url = "..."; hash = "..."; stripPrefix = "..."; }
 #     ];
 #     # Archives the lock cannot express, seeded into the repo cache by sha256:
-#     #   - root-module use_repo_rule http_archive/http_file deps (declare them in
-#     #     MODULE.bazel with their integrity; list the same url+sha256 here so the
-#     #     archive resolves offline). This is the canonical way to make a
-#     #     use_repo_rule repo offline; --override_repository does NOT work for
-#     #     them (it cannot match the `_main~_repo_rules~<name>` canonical name).
-#     #   - globally registered toolchains fetched via download_and_extract on a
-#     #     hardcoded URL (e.g. aspect_bazel_lib's bats, rules_python interpreters).
-#     extraArchives = [ { url = "..."; sha256 = "..."; } ];
+#     # the manifest flazel-lock-archives writes (extension repos, use_repo_rule
+#     # repos, archive_override archives; see archive-manifest.nix), plus by
+#     # hand only what no Bazel resolution names.
+#     extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
 #   };
 #   # caches.bazelRepoCache - content-addressable cache of every download: BCR
 #   #   registry files, module archives, patches, overlays, extraArchives
@@ -41,10 +37,9 @@
     if isValidJson then builtins.fromJSON content else { registryFileHashes = { }; };
 
   # Parse a flazel-archives.json manifest (written by flazel-lock-archives in
-  # the dev shell) into the extraArchives list. Missing file = no extra
-  # archives, so adopting the manifest is opt-in per workspace.
-  parseArchiveManifest =
-    path: if builtins.pathExists path then builtins.fromJSON (builtins.readFile path) else [ ];
+  # the dev shell) into the extraArchives list. A missing file is an
+  # evaluation error: an untracked manifest must not empty the cache.
+  parseArchiveManifest = path: builtins.fromJSON (builtins.readFile path);
 
   # Generate BCR caches from lock file
   mkBcrCaches =
@@ -250,9 +245,7 @@
           ) modulesWithSources
         )}
 
-        # Caller-supplied { url, sha256 } archives for offline downloads the lock
-        # does not expose: e.g. aspect_bazel_lib's bats toolchain, which calls
-        # download_and_extract on a hardcoded URL (no generatedRepoSpec to discover).
+        # Caller-supplied { url, sha256 } archives the lock does not record.
         ${builtins.concatStringsSep "\n" (
           map (
             a: ''add_to_cache "${fetchExtensionArchive a}" "${toHex a.sha256}" "${urlHash a.url}"''

@@ -33,7 +33,7 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
 
 - **Offline builds**: BCR modules (and vendored crate archives) pre-fetched into the Nix store. After initial setup, the network is optional.
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
-- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. The archives a build fetches from module extensions live in a committed `flazel-archives.json`, written by `flazel-lock-archives` (see [Offline Rust](#offline-rust)).
+- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. The archives a build fetches that the lockfile does not record live in a committed `flazel-archives.json`, written by `flazel-lock-archives` (see [The archives a build fetches](#the-archives-a-build-fetches)).
 
 ## Quick Start (C/C++)
 
@@ -272,13 +272,14 @@ example: [`tests/rust/`](tests/rust/).
 > cold-cache pre-seeding, not correctness.
 
 `mkBcrCaches` prefetches registry metadata and module archives from the
-lockfile, and nothing a module extension downloads. The lockfile omits
-extensions declaring `reproducible = True` outright (rules_rust's internal
-crates, such as tinyjson), and what it does record is every repo a ruleset
-could create rather than the few a build reads. The dev shell ships
-`flazel-lock-archives`, which asks Bazel for the extension repo specs, builds
-against an empty repository cache, and keeps the archives that were fetched.
-For a strict-offline build, commit the manifest and wire it in:
+lockfile, and nothing else. The lockfile omits extensions declaring
+`reproducible = True` outright (rules_rust's internal crates, such as
+tinyjson), records what an extension could create rather than the few repos a
+build reads, and records neither the root module's `use_repo_rule` repos nor
+an `archive_override`'s archive. The dev shell ships `flazel-lock-archives`,
+which asks Bazel for the specs of all of these, analyzes the build against an
+empty repository cache, and keeps the archives that were fetched. For a
+strict-offline build, commit the manifest and wire it in:
 
 ```nix
 caches = flazel.lib.mkBcrCaches {
@@ -288,8 +289,26 @@ caches = flazel.lib.mkBcrCaches {
 };
 ```
 
-Regenerate it alongside `MODULE.bazel.lock` after a dependency change; a stale
-manifest fails loudly (the offline build names the missing archive).
+```
+flazel-lock-archives [--check] [--output PATH] [-- BAZEL_BUILD_ARGS...]
+```
+
+Bazel arguments default to `//...`; pass the targets and `--config` of the
+offline build. They go to `bazel build --nobuild`, so options under `test:` in
+`.bazelrc` are not applied. The tool reads `MODULE.bazel.lock`, never writes
+it, and fails if it is stale: after a dependency change, refresh the lockfile
+first, then the manifest (`update-locks` does both). `--check` derives it
+afresh and compares it with the committed file, printing each `missing:` and
+`extra:` URL and exiting 1 on any difference, so a CI step catches a stale
+manifest in both directions. A `git_override`, and an `archive_override` with
+`remote_patches`, are refused.
+
+`parseArchiveManifest` fails evaluation when the file is absent, so a manifest
+that is not tracked by git cannot silently empty the cache. The dev shell
+evaluates it too: a project adopting one starts from a file holding `[]`. The
+manifest is empty only when the resolution declares no archive the lockfile
+misses; if it declares some and the build fetches none, the tool refuses to
+write it.
 
 ## SystemVerilog with Verilator
 
@@ -360,11 +379,11 @@ apps.update-locks = flazel.lib.mkUpdateLocksApp {
 };
 ```
 
-`nix run .#update-locks` writes `locks/<version>.lock` with each version's
-Bazel; pass `archives = true` if the project commits `flazel-archives.json`.
-It writes a lockfile and a manifest per version under `locks/`, and the default
-variant's own `flazel-archives.json` as well. The default variant's
-`MODULE.bazel.lock` is left as it was, since Bazel maintains that one itself.
+`nix run .#update-locks` refreshes `MODULE.bazel.lock` with the default
+Bazel and writes `locks/<version>.lock` with each version's; pass
+`archives = true` if the project commits `flazel-archives.json`. It then also
+writes each lock's manifest, `flazel-archives.json` and
+`locks/<version>.archives.json`, after refreshing that lock.
 
 ## How it works
 
@@ -769,20 +788,19 @@ A non-module **repository** (anything declared in `MODULE.bazel` via
 `use_repo_rule`: `http_archive`, `http_file`) is not a `nonBcrDeps` entry.
 `--override_repository` cannot redirect it: a `use_repo_rule` repo's canonical
 name is `_main~_repo_rules~<name>`, which the flag does not match. Declare the
-repo in `MODULE.bazel` the normal way (with its `integrity`/`build_file`), and
-make it resolve offline by seeding its archive into the repo cache, keyed by the
-same sha256:
+repo in `MODULE.bazel` the normal way (with its `integrity`/`build_file`);
+`flazel-lock-archives` puts its archive in the manifest, as it does an
+`archive_override`'s (see
+[The archives a build fetches](#the-archives-a-build-fetches)).
+
+`extraArchives` is a list of `{ url; sha256; }` seeded into the repo cache by
+sha256. List an archive by hand only when no Bazel resolution names it:
 
 ```nix
-extraArchives = [
+extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json ++ [
   { url = "https://github.com/org/data/archive/v1.tar.gz"; sha256 = "sha256-..."; }
 ];
 ```
-
-`extraArchives` carries every archive the lockfile cannot be read for: module
-extension downloads (see [The archives a build fetches](#the-archives-a-build-fetches))
-and globally registered toolchains Bazel fetches via `download_and_extract` on a
-hardcoded URL, such as aspect_bazel_lib's bats or the rules_python interpreter.
 
 ## Reproducible releases
 

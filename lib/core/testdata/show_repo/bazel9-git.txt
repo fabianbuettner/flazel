@@ -1,0 +1,15 @@
+## flazel@_:
+load("@@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
+local_repository(
+  name = "flazel+",
+  path = "/nix/store/HASH-source",
+)
+
+## platforms@_:
+load("@@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+git_repository(
+  name = "platforms",
+  commit = "ab99943ab6bed53cff461a3afa99fc79d31e4351",
+  remote = "https://github.com/bazelbuild/platforms.git",
+)
+
