@@ -199,8 +199,8 @@
   "moduleExtensions": {
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "uOf4GE+itUriDexFJRJRDZ3Ysngbei35aeONx/ov8qE=",
-        "usagesDigest": "hH5d2wbku3bUOXbuXJ41Ax9a95evihkC0YhwSQs2jqw=",
+        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
+        "usagesDigest": "atJf3dRVE7wdnC5Vwi5y8gTa6UuPt+bgeeID7TR/HtE=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
           "local_config_cc_default": {
@@ -263,6 +263,7 @@
               "path": ".nix-bazel-deps/libs/headers_probe_default",
               "lib_name": "headers_probe",
               "libs": [],
+              "pkgconfig": [],
               "toolchain": "default",
               "toolchains": [
                 "default",
@@ -277,6 +278,7 @@
               "path": ".nix-bazel-deps/libs/headers_probe_clang",
               "lib_name": "headers_probe",
               "libs": [],
+              "pkgconfig": [],
               "toolchain": "clang",
               "toolchains": [
                 "default",
@@ -291,6 +293,7 @@
               "path": ".nix-bazel-deps/libs/headers_probe_musl",
               "lib_name": "headers_probe",
               "libs": [],
+              "pkgconfig": [],
               "toolchain": "musl",
               "toolchains": [
                 "default",
@@ -310,12 +313,441 @@
               ]
             }
           },
+          "pcprobe_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_default",
+              "lib_name": "pcprobe",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe"
+              ],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_clang",
+              "lib_name": "pcprobe",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe"
+              ],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_musl",
+              "lib_name": "pcprobe",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe"
+              ],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_plain_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_plain_default",
+              "lib_name": "pcprobe_plain",
+              "libs": [],
+              "pkgconfig": [],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_plain_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_plain_clang",
+              "lib_name": "pcprobe_plain",
+              "libs": [],
+              "pkgconfig": [],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_plain_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_plain_musl",
+              "lib_name": "pcprobe_plain",
+              "libs": [],
+              "pkgconfig": [],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_plain": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe_plain",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_foreign_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_foreign_default",
+              "lib_name": "pcprobe_foreign",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-foreign"
+              ],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_foreign_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_foreign_clang",
+              "lib_name": "pcprobe_foreign",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-foreign"
+              ],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_foreign_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_foreign_musl",
+              "lib_name": "pcprobe_foreign",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-foreign"
+              ],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_foreign": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe_foreign",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_missing_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_missing_default",
+              "lib_name": "pcprobe_missing",
+              "libs": [],
+              "pkgconfig": [
+                "nosuch"
+              ],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_missing_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_missing_clang",
+              "lib_name": "pcprobe_missing",
+              "libs": [],
+              "pkgconfig": [
+                "nosuch"
+              ],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_missing_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_missing_musl",
+              "lib_name": "pcprobe_missing",
+              "libs": [],
+              "pkgconfig": [
+                "nosuch"
+              ],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_missing": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe_missing",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_only_foreign_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_only_foreign_default",
+              "lib_name": "pcprobe_only_foreign",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-only-foreign"
+              ],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_only_foreign_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_only_foreign_clang",
+              "lib_name": "pcprobe_only_foreign",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-only-foreign"
+              ],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_only_foreign_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_only_foreign_musl",
+              "lib_name": "pcprobe_only_foreign",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-only-foreign"
+              ],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_only_foreign": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe_only_foreign",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unplaced_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_unplaced_default",
+              "lib_name": "pcprobe_unplaced",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-unplaced"
+              ],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unplaced_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_unplaced_clang",
+              "lib_name": "pcprobe_unplaced",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-unplaced"
+              ],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unplaced_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_unplaced_musl",
+              "lib_name": "pcprobe_unplaced",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-unplaced"
+              ],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unplaced": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe_unplaced",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unreadable_default": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_unreadable_default",
+              "lib_name": "pcprobe_unreadable",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-unreadable"
+              ],
+              "toolchain": "default",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unreadable_clang": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_unreadable_clang",
+              "lib_name": "pcprobe_unreadable",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-unreadable"
+              ],
+              "toolchain": "clang",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unreadable_musl": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
+            "attributes": {
+              "path": ".nix-bazel-deps/libs/pcprobe_unreadable_musl",
+              "lib_name": "pcprobe_unreadable",
+              "libs": [],
+              "pkgconfig": [
+                "pcprobe-unreadable"
+              ],
+              "toolchain": "musl",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
+          "pcprobe_unreadable": {
+            "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_alias_repo",
+            "attributes": {
+              "lib_name": "pcprobe_unreadable",
+              "toolchains": [
+                "default",
+                "clang",
+                "musl"
+              ]
+            }
+          },
           "zlib_default": {
             "repoRuleId": "@@flazel+//bazel:nix_cc.bzl%_nix_lib_repo",
             "attributes": {
               "path": ".nix-bazel-deps/libs/zlib_default",
               "lib_name": "zlib",
               "libs": [],
+              "pkgconfig": [],
               "toolchain": "default",
               "toolchains": [
                 "default",
@@ -330,6 +762,7 @@
               "path": ".nix-bazel-deps/libs/zlib_clang",
               "lib_name": "zlib",
               "libs": [],
+              "pkgconfig": [],
               "toolchain": "clang",
               "toolchains": [
                 "default",
@@ -344,6 +777,7 @@
               "path": ".nix-bazel-deps/libs/zlib_musl",
               "lib_name": "zlib",
               "libs": [],
+              "pkgconfig": [],
               "toolchain": "musl",
               "toolchains": [
                 "default",

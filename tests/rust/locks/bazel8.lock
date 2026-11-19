@@ -1076,7 +1076,7 @@
     },
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "uOf4GE+itUriDexFJRJRDZ3Ysngbei35aeONx/ov8qE=",
+        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
         "usagesDigest": "qk8cOpmWSDhwy6B8YsqBbwYXvwS4N0fRA7rNawXSU3s=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
