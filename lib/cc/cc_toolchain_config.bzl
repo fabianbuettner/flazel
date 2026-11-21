@@ -159,6 +159,32 @@ def _pic_features():
         ),
     ]
 
+# ELF only. Neither mingw's ld nor ld64 has -z, and for PE -gsplit-dwarf makes
+# gcc call an unprefixed objcopy.
+def _elf_features(loads_shared_objects):
+    return ([
+        feature(
+            # Eager binding, which makes the linker's default RELRO full RELRO. A
+            # bare-metal ld has no dynamic linking and warns "-z now ignored".
+            name = "bind_now",
+            enabled = True,
+            flag_sets = [flag_set(
+                actions = _LINK_ACTIONS,
+                flag_groups = [flag_group(flags = ["-Wl,-z,now"])],
+            )],
+        ),
+    ] if loads_shared_objects else []) + [
+        feature(
+            name = "split_debug",
+            enabled = True,
+            flag_sets = [flag_set(
+                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
+                flag_groups = [flag_group(flags = ["-gsplit-dwarf"])],
+                with_features = [with_feature_set(features = ["dbg"])],
+            )],
+        ),
+    ]
+
 # Windows: .exe and .dll names, and DLLs copied beside the binaries
 # that load them.
 def _windows_features():
@@ -261,6 +287,7 @@ def _with_deps_root(ctx, flags):
     return [flag.replace("@DEPS@", root) for flag in flags]
 
 def _impl(ctx):
+    targets_windows = ctx.attr.object_format == "pe"
     parse_headers_action_configs, parse_headers_features = _parse_headers(ctx)
     features = _link_inputs_features() + [
         feature(
@@ -385,7 +412,7 @@ def _impl(ctx):
             # _FORTIFY_SOURCE is a no-op without optimization: at -O0 glibc
             # disables it and warns. Gate it on the opt feature (the only one
             # that adds -O) so it applies exactly where it works, like
-            # gc_sections and split_debug below.
+            # gc_sections below and split_debug.
             name = "fortify_source",
             enabled = True,
             flag_sets = [flag_set(
@@ -499,16 +526,6 @@ def _impl(ctx):
             ]),
         ),
         feature(
-            # ELF only; for PE, gcc would call an unprefixed objcopy.
-            name = "split_debug",
-            enabled = not ctx.attr.targets_windows,
-            flag_sets = [flag_set(
-                actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile],
-                flag_groups = [flag_group(flags = ["-gsplit-dwarf"])],
-                with_features = [with_feature_set(features = ["dbg"])],
-            )],
-        ),
-        feature(
             # -Wl,--gdb-index requires gold, lld, or mold; ld.bfd does not support it.
             # Off by default so projects that link with bfd (or run `bazel coverage`,
             # which forces dbg mode) do not break. Opt in via `--features=gdb_index`.
@@ -547,7 +564,7 @@ def _impl(ctx):
                 with_features = [with_feature_set(features = ["dbg"])],
             )],
         ),
-    ] + (_windows_features() if ctx.attr.targets_windows else _pic_features()) + (_clang_features() if ctx.attr.is_clang else []) + parse_headers_features
+    ] + (_windows_features() if targets_windows else _pic_features()) + (_elf_features(ctx.attr.loads_shared_objects) if ctx.attr.object_format == "elf" else []) + (_clang_features() if ctx.attr.is_clang else []) + parse_headers_features
 
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
@@ -576,7 +593,7 @@ def _impl(ctx):
         ],
         features = features,
         action_configs = parse_headers_action_configs,
-        artifact_name_patterns = _WINDOWS_ARTIFACT_NAMES if ctx.attr.targets_windows else [],
+        artifact_name_patterns = _WINDOWS_ARTIFACT_NAMES if targets_windows else [],
     )
 
 cc_toolchain_config = rule(
@@ -592,14 +609,17 @@ cc_toolchain_config = rule(
         "freestanding": attr.bool(mandatory = True),
         "is_clang": attr.bool(mandatory = True),
         "link_flags": attr.string_list(mandatory = True),
+        # Whether the target OS loads shared objects; bare metal does not.
+        "loads_shared_objects": attr.bool(mandatory = True),
         "lto_flag": attr.string(mandatory = True),
+        # What the linker writes: pe is Windows.
+        "object_format": attr.string(mandatory = True, values = ["elf", "macho", "pe"]),
         # Appended to the header-parse action's own flags.
         "parse_headers_flags": attr.string_list(mandatory = True),
         "target_cpu": attr.string(mandatory = True),
         "target_libc": attr.string(mandatory = True),
         "target_system_name": attr.string(mandatory = True),
         "supports_header_parsing": attr.bool(mandatory = True),
-        "targets_windows": attr.bool(mandatory = True),
     },
     provides = [CcToolchainConfigInfo],
 )

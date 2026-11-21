@@ -595,7 +595,8 @@ let
         cxx_standard = "${cxxStandard}",
         c_standard = "${cStandard}",
         freestanding = ${if freestanding then "True" else "False"},
-        targets_windows = ${if isWindows then "True" else "False"},
+        object_format = "${platform.objectFormat targetOs}",
+        loads_shared_objects = ${starlarkBool (platform.loadsSharedObjects targetOs)},
         is_clang = ${if isClang then "True" else "False"},
         lto_flag = "${if isClang then "-flto=thin" else "-flto=auto"}",
         parse_headers_flags = [${

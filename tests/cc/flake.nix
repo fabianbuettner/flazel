@@ -532,6 +532,106 @@
           '';
         };
 
+        # An ELF executable and shared library bind eagerly with full RELRO, and
+        # lazily with --features=-bind_now; the bind_now feature is the only source.
+        # linkers: toolchain name -> the linker that must have written the output.
+        mkBindNowCheck =
+          {
+            name,
+            toolchains,
+            linkers,
+          }:
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains = toolchains;
+            script = ''
+              binding() {
+                local dyn flags=0
+                dyn=$(readelf -dW "$1")
+                grep -q NEEDED <<<"$dyn" || { echo static; return; }
+                grep -qE '\(FLAGS\).*BIND_NOW' <<<"$dyn" && flags=$((flags + 1))
+                grep -qE '\(FLAGS_1\).*Flags:.* NOW( |$)' <<<"$dyn" && flags=$((flags + 1))
+                case $flags in 2) echo now ;; 0) echo lazy ;; *) echo mixed ;; esac
+              }
+              # bfd writes no .comment entry of its own.
+              linker() {
+                local comment
+                comment=$(readelf -p .comment "$1" 2>/dev/null || true)
+                if grep -q 'mold ' <<<"$comment"; then echo mold
+                elif grep -q 'Linker: LLD' <<<"$comment"; then echo lld
+                elif readelf -SW "$1" | grep -q gold-version; then echo gold
+                else echo bfd; fi
+              }
+              expect() {
+                local tc=$1 ld=$2 want=$3 got relro by f
+                shift 3
+                bazel build --platforms=@local_config_cc_$tc//:platform "$@" //hello:hello //shared:shared \
+                  || { fail "$tc $*: build failed"; return; }
+                for f in bazel-bin/hello/hello bazel-bin/shared/printer/libprinter.so; do
+                  got=$(binding $f)
+                  by=$(linker $f)
+                  relro=$(readelf -lW $f | grep -c GNU_RELRO || true)
+                  echo "$tc ''${*:-<defaults>}: $f linked by $by binds $got, $relro GNU_RELRO"
+                  [ "$by" = "$ld" ] || fail "$tc $*: $f linked by $by, want $ld"
+                  [ "$got" = "$want" ] || fail "$tc $*: $f binds $got, want $want"
+                  [ "$relro" = 1 ] || fail "$tc $*: $f has $relro GNU_RELRO segments"
+                done
+                [ "$(./bazel-bin/hello/hello)" = "flazel cc ok" ] || fail "$tc $*: hello did not run"
+              }
+              ${pkgs.lib.concatMapStrings (tc: ''
+                expect ${tc} ${linkers.${tc}} now
+                expect ${tc} ${linkers.${tc}} lazy --features=-bind_now
+              '') (builtins.attrNames toolchains)}
+            '';
+          };
+        # mold separately, under the one name it can have.
+        bindNow = mkBindNowCheck {
+          name = "bind-now";
+          toolchains = { inherit (selectionToolchains) default clang; };
+          linkers = {
+            default = "bfd";
+            clang = "lld";
+          };
+        };
+        bindNowMold = mkBindNowCheck {
+          name = "bind-now-mold";
+          toolchains.default = moldCfg;
+          linkers.default = "mold";
+        };
+
+        # A bare-metal ld has no dynamic linking and warns at -z now, so a
+        # bare-metal link passes no -z now and links clean under --fatal-warnings.
+        riscvEmbedded = pkgs.pkgsCross.riscv64-embedded;
+        bindNowBareMetal = mkShellCheck {
+          name = "bind-now-baremetal";
+          variant = variants.default;
+          shell.toolchains.default = flazel.lib.cc.mkConfig {
+            inherit pkgs;
+            gcc = riscvEmbedded.buildPackages.gcc;
+            target = {
+              triple = riscvEmbedded.stdenv.hostPlatform.config;
+              libc = null;
+              libcName = "none";
+              freestanding = true;
+              binutils = riscvEmbedded.buildPackages.binutils;
+            };
+          };
+          script = ''
+            platform=--platforms=@local_config_cc_default//:platform
+            link=$(bazel aquery $platform 'mnemonic("CppLink", //:baremetal)' --output=jsonproto \
+              | jq -r '(.actions // [])[].arguments | join(" ")')
+            echo "link: $link"
+            grep -q -- ' -nostdlib' <<<"$link" || fail "no bare-metal link action"
+            if grep -q -- '-z,now' <<<"$link"; then fail "the bare-metal link passes -z now"; fi
+            bazel build $platform --linkopt=-Wl,--fatal-warnings //:baremetal \
+              || fail "the bare-metal link warned or failed"
+            machine=$(readelf -hW bazel-bin/baremetal | grep -o 'Machine:.*' || true)
+            echo "baremetal: $machine"
+            grep -q 'RISC-V' <<<"$machine" || fail "not a RISC-V executable"
+          '';
+        };
+
         # No native toolchain: no exec tools, reported in toolchain resolution
         # (the wording differs between Bazel versions).
         mkCrossOnly =
@@ -1148,6 +1248,9 @@
           explicit-default = explicitDefault;
           subset-shell = subsetShell;
           cross-default = crossDefault;
+          bind-now = bindNow;
+          bind-now-mold = bindNowMold;
+          bind-now-baremetal = bindNowBareMetal;
           cross-only = mkCrossOnly variants.default;
           missing-library = missingLibrary;
           pkgconfig-rule = pkgconfigRule;

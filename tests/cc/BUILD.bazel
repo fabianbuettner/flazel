@@ -135,3 +135,22 @@ cc_binary(
     tags = ["manual"],
     deps = ["@pcprobe_unreadable"],
 )
+
+# Links for an OS-less target; built only by the bare-metal check.
+genrule(
+    name = "baremetal_src",
+    outs = ["baremetal.c"],
+    cmd = """cat > $@ <<'EOF'
+void _start(void) {
+  for (;;) {
+  }
+}
+EOF""",
+)
+
+cc_binary(
+    name = "baremetal",
+    srcs = [":baremetal_src"],
+    features = ["-stack_protector_strong"],
+    target_compatible_with = ["@platforms//os:none"],
+)

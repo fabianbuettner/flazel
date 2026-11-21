@@ -692,8 +692,13 @@ Bazel `--features=` flags wired to compiler/linker options.
 | `colored_diagnostics` | `-fdiagnostics-color=always` | always |
 | `debug_prefix_map` | `-ffile-prefix-map=/proc/self/cwd=.` | always |
 | `frame_pointer` | `-fno-omit-frame-pointer` | `-c dbg` |
-| `split_debug` | `-gsplit-dwarf` | `-c dbg` |
+| `split_debug` | `-gsplit-dwarf` | `-c dbg`, ELF targets |
 | `gc_sections` | `-ffunction-sections -fdata-sections -Wl,--gc-sections` | `-c opt` |
+| `bind_now` | `-Wl,-z,now` | Linux targets (ELF), a no-op for static links; not bare metal, Windows or macOS |
+
+`bind_now` turns the RELRO every supported linker already applies into full
+RELRO. A consumer wants it here rather than as `--linkopt=-Wl,-z,now`, which
+mingw-w64's linker rejects and which Bazel cannot drop for one platform.
 
 ### Opt-in
 
