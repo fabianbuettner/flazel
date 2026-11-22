@@ -35,8 +35,7 @@
           flazel.lib.mkBcrCaches {
             inherit pkgs;
             lockFile = flazel.lib.parseLockFile variant.lockFile;
-            # The archive_override's archive, which no lockfile records.
-            extraArchives = flazel.lib.parseArchiveManifest variant.archives;
+            archives = flazel.lib.parseArchiveManifest variant.archives;
           };
 
         mkCheck =
@@ -49,10 +48,15 @@
             cfg = ccCfg;
             name = "flazel-archive-override${variant.suffix}";
             src = ./.;
-            bazelCommand = "build //:hello";
+            bazelCommand = "build //:hello //:downloads";
             installPhase = ''
               mkdir -p $out/bin
               cp -L bazel-bin/hello $out/bin/hello
+
+              [ -s bazel-bin/downloads.txt ] || {
+                echo "FAIL: no downloads" >&2
+                exit 1
+              }
 
               got=$(./bazel-bin/hello)
               echo "binary output: $got"
@@ -84,7 +88,7 @@
         apps.update-locks = flazel.lib.mkUpdateLocksApp {
           inherit pkgs;
           shells = builtins.attrNames (removeAttrs variants [ "default" ]);
-          archives = true;
+          probes = [ [ "//..." ] ];
         };
       }
     );

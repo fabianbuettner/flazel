@@ -2,7 +2,7 @@
 
 Nix pins your toolchain. Bazel builds your code. Nothing else required.
 
-One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel build` gives you file-level incremental caching. After setup the network is optional, and the only host dependency is Nix. "My machine" is a derivation, and every machine runs the same one.
+One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel build` gives you file-level incremental caching. After setup, the builds the archive manifest covers need no network, and the only host dependency is Nix. "My machine" is a derivation, and every machine runs the same one.
 
 ## Features
 
@@ -31,9 +31,9 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
 
 ### Shared
 
-- **Offline builds**: BCR modules (and vendored crate archives) pre-fetched into the Nix store. After initial setup, the network is optional.
+- **Offline builds**: the archives the probed builds fetch (BCR modules, extension repos, vendored crates) pre-fetched into the Nix store. Once `flazel-lock-archives` has recorded them, those builds run without network; anything it did not observe is fetched online.
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
-- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. The archives a build fetches that the lockfile does not record live in a committed `flazel-archives.json`, written by `flazel-lock-archives` (see [The archives a build fetches](#the-archives-a-build-fetches)).
+- **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. The archives a build fetches live in a committed `flazel-archives.json`, written by `flazel-lock-archives` (see [The archives a build fetches](#the-archives-a-build-fetches)).
 
 ## Quick Start (C/C++)
 
@@ -60,6 +60,8 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
       caches = flazel.lib.mkBcrCaches {
         inherit pkgs;
         lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+        # See "The archives a build fetches"; a new project starts from `[]`.
+        archives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
       };
     in {
       devShells.x86_64-linux.default = flazel.lib.cc.mkDevShell {
@@ -143,6 +145,8 @@ attribute existed.
       caches = flazel.lib.mkBcrCaches {
         inherit pkgs;
         lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
+        # See "The archives a build fetches"; a new project starts from `[]`.
+        archives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
       };
 
       # Optional: for crate_universe users. Version + source derive from the
@@ -262,53 +266,64 @@ example: [`tests/rust/`](tests/rust/).
 
 ### The archives a build fetches
 
-> **When you need this:** only for **strict-offline** builds, i.e. the hermetic
-> `mkDerivation` path, where the sandbox has no network and the Nix-built
-> repository cache is the *exclusive* source. In the dev shell the same cache
-> has a network fallback, so a missing archive is just fetched on a cache miss.
-> If your CI builds in the dev shell and you have no hermetic `mkDerivation`
-> check, skip this whole section: omit `extraArchives`, don't commit
-> `flazel-archives.json`, and don't run `flazel-lock-archives`. You lose only
-> cold-cache pre-seeding, not correctness.
-
-`mkBcrCaches` prefetches registry metadata and module archives from the
-lockfile, and nothing else. The lockfile omits extensions declaring
-`reproducible = True` outright (rules_rust's internal crates, such as
-tinyjson), records what an extension could create rather than the few repos a
-build reads, and records neither the root module's `use_repo_rule` repos nor
-an `archive_override`'s archive. The dev shell ships `flazel-lock-archives`,
-which asks Bazel for the specs of all of these, analyzes the build against an
-empty repository cache, and keeps the archives that were fetched. For a
-strict-offline build, commit the manifest and wire it in:
+`mkBcrCaches` takes the registry files from the lockfile and every archive
+from `archives`, the manifest `flazel-lock-archives` writes. The lockfile
+cannot say which archives a build fetches: it names every module the version
+resolution visited, also those no build reads (whose archive may sit on a
+mirror long gone), records what an extension could create rather than the
+few repos a build reads, omits extensions declaring `reproducible = True`
+outright (rules_rust's internal crates, such as tinyjson), and records
+neither the root module's `use_repo_rule` repos nor an `archive_override`'s
+archive. The dev shell ships `flazel-lock-archives`, which asks Bazel for the
+specs of all of these (module archives with their registry patches and
+overlay files included), analyzes the build against an empty repository
+cache, and keeps the archives that were fetched. Commit the manifest and wire
+it in:
 
 ```nix
 caches = flazel.lib.mkBcrCaches {
   inherit pkgs;
   lockFile = flazel.lib.parseLockFile ./MODULE.bazel.lock;
-  extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
+  archives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
 };
 ```
 
 ```
-flazel-lock-archives [--check] [--output PATH] [-- BAZEL_BUILD_ARGS...]
+flazel-lock-archives [--check] [--output PATH]
+                     [-- BAZEL_BUILD_ARGS... [--and BAZEL_BUILD_ARGS...]...]
 ```
 
-Bazel arguments default to `//...`; pass the targets and `--config` of the
-offline build. They go to `bazel build --nobuild`, so options under `test:` in
+Bazel arguments default to `//...`; pass the targets and `--config` of every
+offline build. Each `--and`-separated group is analyzed on its own and the
+manifest is the union of what they fetch, so a project building several target
+configurations (`--platforms`, `--config`s, `--define`s that select different
+dependencies) passes one group each:
+
+```
+flazel-lock-archives -- //... --and --config=windows //app:installer
+```
+
+The groups vary the target configuration, not the host. A manifest is observed
+on the host that runs the tool and is shared by every system the flake builds
+for, so a download that depends on the host (an exec toolchain, an extension
+that picks by OS or architecture) is recorded only for the probing host; a
+build on another host needs a probe there.
+
+The groups go to `bazel build --nobuild`, so options under `test:` in
 `.bazelrc` are not applied. The tool reads `MODULE.bazel.lock`, never writes
 it, and fails if it is stale: after a dependency change, refresh the lockfile
 first, then the manifest (`update-locks` does both). `--check` derives it
-afresh and compares it with the committed file, printing each `missing:` and
-`extra:` URL and exiting 1 on any difference, so a CI step catches a stale
-manifest in both directions. A `git_override`, and an `archive_override` with
-`remote_patches`, are refused.
+afresh, with the same groups, and compares it with the committed file,
+printing the urls of each `missing:` and `extra:` download and exiting 1 on any difference, so
+a CI step catches a stale manifest in both directions. A `git_override`, and
+any module download without a sha256 integrity, are refused.
 
 `parseArchiveManifest` fails evaluation when the file is absent, so a manifest
 that is not tracked by git cannot silently empty the cache. The dev shell
-evaluates it too: a project adopting one starts from a file holding `[]`. The
-manifest is empty only when the resolution declares no archive the lockfile
-misses; if it declares some and the build fetches none, the tool refuses to
-write it.
+evaluates it too: a project adopting one starts from a file holding `[]`, and
+its dev shell fetches on a cache miss until the manifest is written. The
+manifest is empty only when the resolution declares no archive; if it
+declares some and the builds fetch none, the tool refuses to write it.
 
 ## SystemVerilog with Verilator
 
@@ -368,7 +383,7 @@ checks = pkgs.lib.mapAttrs' (_: variant:
     caches = flazel.lib.mkBcrCaches {
       inherit pkgs;
       lockFile = flazel.lib.parseLockFile variant.lockFile;
-      extraArchives = flazel.lib.parseArchiveManifest variant.archives;
+      archives = flazel.lib.parseArchiveManifest variant.archives;
     };
     # name, src, bazelCommand, installPhase as usual
   })) variants;
@@ -376,14 +391,15 @@ devShells = builtins.mapAttrs (_: variant: flazel.lib.cc.mkDevShell { /* bazel, 
 apps.update-locks = flazel.lib.mkUpdateLocksApp {
   inherit pkgs;
   shells = builtins.attrNames (removeAttrs variants [ "default" ]);
+  # One Bazel argument list per configuration the checks build.
+  probes = [ [ "//..." ] ];
 };
 ```
 
 `nix run .#update-locks` refreshes `MODULE.bazel.lock` with the default
-Bazel and writes `locks/<version>.lock` with each version's; pass
-`archives = true` if the project commits `flazel-archives.json`. It then also
-writes each lock's manifest, `flazel-archives.json` and
-`locks/<version>.archives.json`, after refreshing that lock.
+Bazel and writes `locks/<version>.lock` with each version's. After refreshing
+each lock it writes that lock's manifest, `flazel-archives.json` and
+`locks/<version>.archives.json`, observing one build per entry of `probes`.
 
 ## How it works
 
@@ -787,7 +803,7 @@ moduleOverrides = { mjolnir = mjolnir.packages.${system}.bazelModule; };
 `MODULE.bazel` then names it without a version: `bazel_dep(name = "mjolnir")`.
 flazel reaches every consumer the same way.
 
-### Repositories and offline archives (`extraArchives`)
+### Repositories and offline archives (`archives`)
 
 A non-module **repository** (anything declared in `MODULE.bazel` via
 `use_repo_rule`: `http_archive`, `http_file`) is not a `nonBcrDeps` entry.
@@ -798,12 +814,20 @@ repo in `MODULE.bazel` the normal way (with its `integrity`/`build_file`);
 `archive_override`'s (see
 [The archives a build fetches](#the-archives-a-build-fetches)).
 
-`extraArchives` is a list of `{ url; sha256; }` seeded into the repo cache by
-sha256. List an archive by hand only when no Bazel resolution names it:
+`archives` is a list of `{ urls; sha256; canonical_id; }`, one per download,
+seeded into the repo cache by sha256. Nix fetches from the urls in order.
+Bazel finds a cached download only under the id it downloads with: the
+`canonical_id` the repository sets, else its urls joined by spaces, so both
+are recorded as the spec has them (`canonical_id` is `""` when unset). List
+an archive by hand only when no Bazel resolution names it:
 
 ```nix
-extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json ++ [
-  { url = "https://github.com/org/data/archive/v1.tar.gz"; sha256 = "sha256-..."; }
+archives = flazel.lib.parseArchiveManifest ./flazel-archives.json ++ [
+  {
+    urls = [ "https://github.com/org/data/archive/v1.tar.gz" ];
+    sha256 = "sha256-...";
+    canonical_id = "";
+  }
 ];
 ```
 
@@ -832,7 +856,7 @@ nix build  # same inputs, same result
 
 **Incremental.** Touch one `.cc` file, rebuild one target. Bazel tracks at file granularity.
 
-**Offline.** Once the dev-shell closure is in your Nix store (first `nix develop`, an internal binary cache, or `nix copy` over sneakernet), the network is optional: `nix develop --offline` and Bazel builds both run air-gapped.
+**Offline.** Once the dev-shell closure is in your Nix store (first `nix develop`, an internal binary cache, or `nix copy` over sneakernet), `nix develop --offline` runs air-gapped, and so do the Bazel builds the manifest was observed for (see [The archives a build fetches](#the-archives-a-build-fetches)). A manifest holding `[]` caches nothing.
 
 **Portable.** Install Nix. That's the entire prerequisites list.
 

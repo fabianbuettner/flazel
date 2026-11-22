@@ -154,7 +154,7 @@
   "moduleExtensions": {
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
+        "bzlTransitiveDigest": "2ghxfJsDX2QuFbODZco4sACKJJDAeTjNmml0rmbR28s=",
         "usagesDigest": "b6B1rkDJjia4Vk10FbnR3i1/Aa06/7LumShFhZERBjg=",
         "recordedFileInputs": {
           "@@//MODULE.bazel": "8be1c8a19b6f18666dc26ee82912b61931866b2d2716732185991490bff63a9f"
@@ -186,7 +186,7 @@
     },
     "@@flazel~//bazel:nix_rust.bzl%nix_rust": {
       "general": {
-        "bzlTransitiveDigest": "m+Zl7Rh1oAkij1n/867QB51drPorhPJyFu7TRC62IRY=",
+        "bzlTransitiveDigest": "s7VEFsGGg4EdihXQ7lEn3cPmsipDtgaWrHyGIdbaFgw=",
         "usagesDigest": "Jj9VZ7CQPyifm2lnqoJuzlCcZ3x898wmUvIAJo1hK5o=",
         "recordedFileInputs": {
           "@@//MODULE.bazel": "8be1c8a19b6f18666dc26ee82912b61931866b2d2716732185991490bff63a9f"

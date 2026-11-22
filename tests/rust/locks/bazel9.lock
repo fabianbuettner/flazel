@@ -1089,7 +1089,7 @@
     },
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
+        "bzlTransitiveDigest": "2ghxfJsDX2QuFbODZco4sACKJJDAeTjNmml0rmbR28s=",
         "usagesDigest": "qk8cOpmWSDhwy6B8YsqBbwYXvwS4N0fRA7rNawXSU3s=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
@@ -1138,7 +1138,7 @@
     },
     "@@flazel+//bazel:nix_rust.bzl%nix_rust": {
       "general": {
-        "bzlTransitiveDigest": "m+Zl7Rh1oAkij1n/867QB51drPorhPJyFu7TRC62IRY=",
+        "bzlTransitiveDigest": "s7VEFsGGg4EdihXQ7lEn3cPmsipDtgaWrHyGIdbaFgw=",
         "usagesDigest": "PHylJQmKk3PvusdnGgBm1GzMBkyQK9oHjGarUNT/AQM=",
         "recordedInputs": [],
         "generatedRepoSpecs": {

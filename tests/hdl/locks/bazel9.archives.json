@@ -1,0 +1,247 @@
+[
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/apple_support/2.9.1/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "569a6389a61af6e0f144eda0e8197731eb6c371f4d78135813e9108153342849",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/bazel_features/1.50.0/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "a9339c4684b9691dba04ac4ab4334ae55f4eb7dfd305dbb054d9c850f03f8d1c",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/overlay/BUILD.bazel"
+    ],
+    "sha256": "f8f677c31c4440a37a42528a7b2c46ec1862a26a463e5d7f492819ee16b3e3fb",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/overlay/MODULE.bazel"
+    ],
+    "sha256": "bf2d9ac92dd3b792e514ca412965d78863ba3a05344c77f4109b4daa8dd81dab",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/overlay/programs/BUILD.bazel"
+    ],
+    "sha256": "4f7bd0a687fb3642eb2189ffcae94f397e7a98d3e6b06b92a2c2a8c4c109a32e",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/rules_cc/0.2.27/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "2c0d01afd9f01da60c6e155106b306b43dfeca22bbb0b6360b3fa3e77c855685",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/rules_kotlin/1.9.6/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "0f3709e770aa0ea0fe0226e8025f13ab6fdf2894579f48393b68385107cbadb1",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/rules_python/1.7.0/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "a9ffb62ba1d8e9ebad5225bd2cde6e8ff20688060fff8d14133ca9bb237fb48b",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/rules_shell/0.6.1/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "5f0700eaa9a33770aae4ae8b06bec8e433f518eb50711378c8cd3a5d7854ff2d",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/rules_swift/3.1.2/patches/module_dot_bazel_version.patch"
+    ],
+    "sha256": "4386831f878dc47f89103c2359aa36b880391cdcf05b7d0758d01a807b70198c",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/systemc/3.0.2/overlay/MODULE.bazel"
+    ],
+    "sha256": "7c4283e827307eb8eedfcba74f500f114e248916d948a2cdc45971818f3fde0d",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/zlib/1.3.2.bcr.3/overlay/BUILD.bazel"
+    ],
+    "sha256": "03e4745a6569f3dc7c9a1f239f9697ffd578c67550263d54dfb784d7ce44c3f3",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/zlib/1.3.2.bcr.3/overlay/MODULE.bazel"
+    ],
+    "sha256": "0b6a197b824f4882f97f6717d81e09b10c7562023370bf7e9da6380238e9c212",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/zlib/1.3.2.bcr.3/overlay/test/bcr/BUILD.bazel"
+    ],
+    "sha256": "0b2c5a0a319e119f354c0e175bcfc47f520f96ab72833988d5eff78d968e3a1b",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/zlib/1.3.2.bcr.3/overlay/test/bcr/MODULE.bazel"
+    ],
+    "sha256": "49d04c1055e347e642cd38ffe823594028704bf712b12bc99329479f91255cee",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/zlib/1.3.2.bcr.3/overlay/test/bcr/round_trip_test.c"
+    ],
+    "sha256": "509455759eeebdf800c86df5ed42f576eb710bde0ec09c09c025a121f8544d74",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://bcr.bazel.build/modules/zlib/1.3.2.bcr.3/overlay/zlib-1.3.2/BUILD.bazel"
+    ],
+    "sha256": "3862d5392535639f186764a3ae2a08d75a8aa06e661b833ab443d7f1c1567828",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazel-contrib/bazel_features/releases/download/v1.50.0/bazel_features-v1.50.0.tar.gz"
+    ],
+    "sha256": "094367e732ece23f334eaf84089a720b861d053beeba6a6a68356d3aee1dc32b",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazel-contrib/rules_python/releases/download/1.7.0/rules_python-1.7.0.tar.gz"
+    ],
+    "sha256": "f609f341d6e9090b981b3f45324d05a819fd7a5a56434f849c761971ce2c47da",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazel-contrib/supply-chain/releases/download/package_metadata-0.0.13/package_metadata-0.0.13.tar.gz"
+    ],
+    "sha256": "755bd6c8a3751982e2555d96c913ec070954ca9d01f935563392255da4ebad72",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/apple_support/releases/download/2.9.1/apple_support.2.9.1.tar.gz"
+    ],
+    "sha256": "3d9b4a73fd3d58dd3303e8cd95497dc705407aacdd415faaf60b22de850a75c6",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/bazel-skylib/releases/download/1.9.0/bazel-skylib-1.9.0.tar.gz"
+    ],
+    "sha256": "3b5b49006181f5f8ff626ef8ddceaa95e9bb8ad294f7b5d7b11ea9f7ddaf8c59",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/platforms/releases/download/1.0.0/platforms-1.0.0.tar.gz"
+    ],
+    "sha256": "3384eb1c30762704fbe38e440204e114154086c8fc8a8c2e3e28441028c019a8",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/rules_cc/releases/download/0.2.27/rules_cc-0.2.27.tar.gz"
+    ],
+    "sha256": "6bcf1b46d9e629cbe4c96d7bfc56f61034c2193b7b16001201282ea50bef5d91",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/rules_java/releases/download/9.1.0/rules_java-9.1.0.tar.gz"
+    ],
+    "sha256": "4e1a28a25c2efa53500c928d22ceffbc505dd95b335a2d025836a293b592212f",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/rules_kotlin/releases/download/v1.9.6/rules_kotlin-v1.9.6.tar.gz"
+    ],
+    "sha256": "3b772976fec7bdcda1d84b9d39b176589424c047eb2175bed09aac630e50af43",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/rules_license/releases/download/1.0.0/rules_license-1.0.0.tar.gz"
+    ],
+    "sha256": "26d4021f6898e23b82ef953078389dd49ac2b5618ac564ade4ef87cced147b38",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/rules_shell/releases/download/v0.6.1/rules_shell-v0.6.1.tar.gz"
+    ],
+    "sha256": "e6b87c89bd0b27039e3af2c5da01147452f240f75d505f5b6880874f31036307",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/bazelbuild/rules_swift/releases/download/3.1.2/rules_swift.3.1.2.tar.gz"
+    ],
+    "sha256": "5eff717c18bb513285b499add68f2331509cd4e411ff085e96a86b3342c1e5aa",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/hw-bzl/rules_verilator/releases/download/1.1.2/rules_verilator-1.1.2.tar.gz"
+    ],
+    "sha256": "f45fc0eee0eb7c319fb9668a8e1826a0003cd63f51aaf3dcf9c6a94e7b7742d2",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/hw-bzl/rules_verilog/releases/download/1.4.2/rules_verilog-1.4.2.tar.gz"
+    ],
+    "sha256": "43417a0d663af6549b5b2c7f77a1112951c605c527095882420a1f5af1175453",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/hw-bzl/rules_vhdl/releases/download/0.4.1/rules_vhdl-0.4.1.tar.gz"
+    ],
+    "sha256": "19fdba0b74c09b8a6c0c4f6672cae40000dab9cbfda70235f31a2e0a56ca99fb",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz"
+    ],
+    "sha256": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz"
+    ],
+    "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16",
+    "canonical_id": ""
+  },
+  {
+    "urls": [
+      "https://github.com/protocolbuffers/protobuf/releases/download/v33.4/protobuf-33.4.bazel.tar.gz"
+    ],
+    "sha256": "687e98a471973b5c5fd711750c40b8b82c0ade33f649db65e00b290f29345a2b",
+    "canonical_id": ""
+  }
+]

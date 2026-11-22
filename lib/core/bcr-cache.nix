@@ -1,11 +1,11 @@
 # BCR (Bazel Central Registry) caching and non-BCR dependency management
 #
 # Provides functions to:
-# - Prefetch and cache BCR module dependencies from MODULE.bazel.lock
+# - Cache the registry files MODULE.bazel.lock records, by the lock's hashes
+# - Seed the offline repo cache with the archives a build downloads
+#   (archives), keyed by sha256
 # - Override non-BCR Bazel *modules* (bazel_dep with no registry entry) via
 #   --override_module in .bazelrc.nix
-# - Seed the offline repo cache with archives the lock cannot express
-#   (extraArchives), keyed by sha256
 #
 # Usage:
 #   caches = flazel.lib.mkBcrCaches {
@@ -15,14 +15,13 @@
 #     nonBcrDeps = [
 #       { name = "foo"; url = "..."; hash = "..."; stripPrefix = "..."; }
 #     ];
-#     # Archives the lock cannot express, seeded into the repo cache by sha256:
-#     # the manifest flazel-lock-archives writes (extension repos, use_repo_rule
-#     # repos, archive_override archives; see archive-manifest.nix), plus by
-#     # hand only what no Bazel resolution names.
-#     extraArchives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
+#     # The manifest flazel-lock-archives writes (module archives, patches and
+#     # overlay files, extension and use_repo_rule repos; see
+#     # archive_manifest.py), plus by hand only what no Bazel resolution names.
+#     archives = flazel.lib.parseArchiveManifest ./flazel-archives.json;
 #   };
-#   # caches.bazelRepoCache - content-addressable cache of every download: BCR
-#   #   registry files, module archives, patches, overlays, extraArchives
+#   # caches.bazelRepoCache - content-addressable cache of the registry files
+#   #   and archives
 #   # caches.nonBcrOverrideFlags - .bazelrc.nix --override_module lines
 #
 {
@@ -37,9 +36,25 @@
     if isValidJson then builtins.fromJSON content else { registryFileHashes = { }; };
 
   # Parse a flazel-archives.json manifest (written by flazel-lock-archives in
-  # the dev shell) into the extraArchives list. A missing file is an
+  # the dev shell) into the archives list. A missing file is an
   # evaluation error: an untracked manifest must not empty the cache.
-  parseArchiveManifest = path: builtins.fromJSON (builtins.readFile path);
+  parseArchiveManifest =
+    path:
+    let
+      entries = builtins.fromJSON (builtins.readFile path);
+      fields = [
+        "urls"
+        "sha256"
+        "canonical_id"
+      ];
+      # A flake's files are read from its store copy; name them from its root.
+      inStore = builtins.match "${builtins.storeDir}/[^/]+/(.*)" (toString path);
+      shown = if inStore == null then toString path else builtins.head inStore;
+    in
+    if builtins.all (e: builtins.all (f: e ? ${f}) fields) entries then
+      entries
+    else
+      throw "${shown}: an entry lacks urls, sha256 or canonical_id. Replace it with [] and regenerate it with flazel-lock-archives; in a project with Bazel variants, replace every locks/*.archives.json too, since update-locks enters each variant's dev shell, which reads its own.";
 
   # Generate BCR caches from lock file
   mkBcrCaches =
@@ -47,96 +62,25 @@
       pkgs,
       lockFile,
       nonBcrDeps ? [ ],
-      extraArchives ? [ ],
+      archives,
     }:
     let
-      parseSourceUrl =
-        url:
-        let
-          parts = builtins.match "https://bcr.bazel.build/modules/([^/]+)/([^/]+)/source.json" url;
-        in
-        if parts != null then
-          {
-            name = builtins.elemAt parts 0;
-            version = builtins.elemAt parts 1;
-            sourceJsonUrl = url;
-            sourceJsonHash = lockFile.registryFileHashes.${url};
-            baseUrl = "https://bcr.bazel.build/modules/${builtins.elemAt parts 0}/${builtins.elemAt parts 1}";
-          }
-        else
-          null;
+      # The lock names every module the version resolution visited, also
+      # those no build fetches, whose archive URLs may be long dead; so the
+      # archives come from an observed build instead (the manifest), and the
+      # lock contributes only the registry files resolution reads.
 
-      sourceJsonUrls = builtins.filter (url: builtins.match ".*source\\.json$" url != null) (
-        builtins.attrNames (lockFile.registryFileHashes or { })
-      );
-
-      modules = builtins.filter (x: x != null) (map parseSourceUrl sourceJsonUrls);
-
-      fetchSourceJson =
-        module:
-        let
-          sourceJson = builtins.fetchurl {
-            url = module.sourceJsonUrl;
-            sha256 = module.sourceJsonHash;
-          };
-          sourceInfo = builtins.fromJSON (builtins.readFile sourceJson);
-        in
-        module
-        // {
-          archiveUrl = sourceInfo.url;
-          archiveIntegrity = sourceInfo.integrity;
-          patches = sourceInfo.patches or { };
-          # BCR "overlay" files (a BUILD.bazel/MODULE.bazel the registry layers
-          # onto upstream sources that ship no Bazel build, e.g. zlib-ng). Served
-          # at <baseUrl>/overlay/<file>; fetched at repo-fetch time, so absent
-          # from registryFileHashes and invisible to the offline build unless
-          # cached explicitly below.
-          overlay = sourceInfo.overlay or { };
-        };
-
-      modulesWithSources = map fetchSourceJson modules;
-
-      # Module extensions declare every repo a ruleset could create, and Bazel
-      # fetches them lazily, so deriving the set from the lock prefetched what no
-      # build reads: measured at 19 archives, 318M of Kotlin compiler, KSP, ktlint
-      # and pypi wheels, for C++ and Rust projects, and 471 declared for one Rust
-      # consumer. All three test suites build hermetically without any of them.
-      # What a build does need arrives through extraArchives, recorded from an
-      # observed build, so a project caches exactly its own downloads.
-
-      fetchExtensionArchive =
+      # The urls are mirrors of one another, tried in order.
+      fetchArchive =
         a:
         pkgs.fetchurl {
-          inherit (a) url sha256;
+          inherit (a) urls sha256;
         };
-
-      fetchModuleArchive =
-        mod:
-        pkgs.fetchurl {
-          url = mod.archiveUrl;
-          name = "${mod.name}-${mod.version}.tar.gz";
-          hash = mod.archiveIntegrity;
-        };
-
-      # Fetch a module's BCR `patches` or `overlay` files (subdir = "patches" or
-      # "overlay"). source.json lists each as { filename = integrity }, served at
-      # <baseUrl>/<subdir>/<filename>: patches are diffs applied to the upstream
-      # source; overlay files (e.g. a BUILD.bazel) are layered onto sources that
-      # ship no Bazel build. Returns { filename = store-path }.
-      fetchModuleFiles =
-        subdir: mod:
-        builtins.mapAttrs (
-          name: hash:
-          pkgs.fetchurl {
-            url = "${mod.baseUrl}/${subdir}/${name}";
-            inherit hash name;
-          }
-        ) mod.${subdir};
 
       # Extract a non-BCR module archive into a ready-to-use directory. These are
       # Bazel modules (they carry their own MODULE.bazel + BUILD files), so no
       # BUILD injection is needed. Non-module repos (use_repo_rule http_archive)
-      # are handled by extraArchives, not here: see the module header.
+      # are handled by archives, not here: see the module header.
       mkExtractedDep =
         dep:
         pkgs.stdenv.mkDerivation {
@@ -159,11 +103,11 @@
         map (dep: "common --override_module=${dep.name}=${mkExtractedDep dep}") nonBcrDeps
       );
 
-      # Bazel keys its content-addressable cache by the hex sha256 of the archive
-      # bytes and an id marker by the hex sha256 of the source URL. Both are known
-      # at eval time (module/patch integrity is SRI; extension http_archives carry
-      # a hex sha256), so convert them here instead of re-reading every archive at
-      # build time.
+      # Bazel keys its content-addressable cache by the hex sha256 of the
+      # file's bytes and an id marker by the hex sha256 of the download's
+      # canonical id: the one its spec sets, else its urls joined by spaces.
+      # Both are known at eval time, so convert them here instead of
+      # re-reading every archive at build time.
       toHex =
         h:
         if builtins.substring 0 7 h == "sha256-" then
@@ -173,7 +117,9 @@
           }
         else
           h;
-      urlHash = url: builtins.hashString "sha256" url;
+      idHash = id: builtins.hashString "sha256" id;
+      canonicalId =
+        a: if a.canonical_id != "" then a.canonical_id else builtins.concatStringsSep " " a.urls;
 
       registryFiles = builtins.filter (url: builtins.match "https://bcr.bazel.build/.*" url != null) (
         builtins.attrNames (lockFile.registryFileHashes or { })
@@ -186,32 +132,11 @@
         mkdir -p $out/content_addressable/sha256
 
         add_to_cache() {
-          local file=$1 hash=$2 url_hash=$3
+          local file=$1 hash=$2 id_hash=$3
           mkdir -p $out/content_addressable/sha256/$hash
           ln -sf "$file" $out/content_addressable/sha256/$hash/file
-          touch $out/content_addressable/sha256/$hash/id-$url_hash
+          touch $out/content_addressable/sha256/$hash/id-$id_hash
         }
-
-        ${builtins.concatStringsSep "\n" (
-          map (
-            mod:
-            let
-              archive = fetchModuleArchive mod;
-              patches = fetchModuleFiles "patches" mod;
-            in
-            ''
-              add_to_cache "${archive}" "${toHex mod.archiveIntegrity}" "${urlHash mod.archiveUrl}"
-              ${builtins.concatStringsSep "\n" (
-                builtins.attrValues (
-                  builtins.mapAttrs (
-                    name: patch:
-                    ''add_to_cache "${patch}" "${toHex mod.patches.${name}}" "${urlHash "${mod.baseUrl}/patches/${name}"}"''
-                  ) patches
-                )
-              )}
-            ''
-          ) modulesWithSources
-        )}
 
         # BCR registry files: bazel_registry.json, MODULE.bazel, source.json.
         ${builtins.concatStringsSep "\n" (
@@ -225,31 +150,14 @@
                 inherit url;
                 sha256 = hash;
               }
-            }" "${hash}" "${urlHash url}"''
+            }" "${hash}" "${idHash url}"''
           ) registryFiles
         )}
 
-        # Overlay files (a BUILD.bazel the registry layers onto sources that ship
-        # none), listed with their integrity in each module's source.json.
         ${builtins.concatStringsSep "\n" (
           map (
-            mod:
-            builtins.concatStringsSep "\n" (
-              builtins.attrValues (
-                builtins.mapAttrs (
-                  name: file:
-                  ''add_to_cache "${file}" "${toHex mod.overlay.${name}}" "${urlHash "${mod.baseUrl}/overlay/${name}"}"''
-                ) (fetchModuleFiles "overlay" mod)
-              )
-            )
-          ) modulesWithSources
-        )}
-
-        # Caller-supplied { url, sha256 } archives the lock does not record.
-        ${builtins.concatStringsSep "\n" (
-          map (
-            a: ''add_to_cache "${fetchExtensionArchive a}" "${toHex a.sha256}" "${urlHash a.url}"''
-          ) extraArchives
+            a: ''add_to_cache "${fetchArchive a}" "${toHex a.sha256}" "${idHash (canonicalId a)}"''
+          ) archives
         )}
       '';
 

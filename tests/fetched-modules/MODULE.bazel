@@ -1,0 +1,28 @@
+module(
+    name = "flazel-fetched-modules-test",
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "flazel")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# In the graph but never fetched: its archive is on a mirror that no longer
+# resolves, so only a cache of what builds fetch can build this offline.
+bazel_dep(name = "libpfm", version = "4.11.0.bcr.1")
+
+# Each fetched by one configuration only (see BUILD.bazel).
+bazel_dep(name = "zlib", version = "1.3.1.bcr.3")
+bazel_dep(name = "lz4", version = "1.10.0.bcr.2")
+
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(
+    nix_cc,
+    "local_config_cc_default",
+    "local_config_cc_default_deps",
+)

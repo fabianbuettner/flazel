@@ -85,6 +85,7 @@
   nixpkgsLibs ? { },
 }:
 let
+  inherit (import ../core/constants.nix) generatedBuild;
   mkNixpkgsRepo = import ./nixpkgs-repo.nix;
   getTransitiveDeps = import ../core/utils.nix pkgs;
   platform = import ../core/platform.nix;
@@ -664,8 +665,8 @@ let
 
   localConfigCc = pkgs.runCommand "local_config_cc" { } ''
     mkdir -p $out/bin $out/test
-    cp ${ccToolchainBuild} $out/BUILD.bazel
-    cp ${testToolchainBuild} $out/test/BUILD.bazel
+    cp ${ccToolchainBuild} $out/${generatedBuild}
+    cp ${testToolchainBuild} $out/test/${generatedBuild}
     cp ${ccToolchainConfigBzl} $out/cc_toolchain_config.bzl
     ${pkgs.lib.optionalString isClang "cp ${systemModuleMap} $out/module.modulemap"}
     cp -r ${ccToolchainBinaries}/bin/* $out/bin/
@@ -677,8 +678,8 @@ let
   # Clang additionally needs clang-lib (for builtin headers like stdarg.h)
   localConfigCcDeps = pkgs.runCommand "local_config_cc_toolchain_deps" { } ''
     mkdir -p $out
-    echo 'package(default_visibility = ["//visibility:public"])' > $out/BUILD.bazel
-    echo 'filegroup(name = "all", srcs = glob(["**/*"]))' >> $out/BUILD.bazel
+    echo 'package(default_visibility = ["//visibility:public"])' > $out/${generatedBuild}
+    echo 'filegroup(name = "all", srcs = glob(["**/*"]))' >> $out/${generatedBuild}
     ln -s ${effectiveGcc} $out/gcc
     ln -s ${effectiveGcc.cc} $out/gcc-lib
     # gcc's "lib" output holds the shared libstdc++.so (the "out" output above

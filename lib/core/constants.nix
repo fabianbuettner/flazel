@@ -19,6 +19,9 @@ in
   # Nix-provided toolchains, libs, caches, and generated .bazelrc.nix.
   nixDepsDir = extract "nix_common.bzl" "NIX_DEPS_DIR";
 
+  # Name of the BUILD file of each repo generated in nixDepsDir.
+  generatedBuild = extract "nix_common.bzl" "GENERATED_BUILD";
+
   # File in nixDepsDir recording the CC toolchain decisions (lib/cc/bazelrc.nix).
   ccToolchainsFile = extract "nix_cc.bzl" "CC_TOOLCHAINS_FILE";
 }

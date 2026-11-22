@@ -1,10 +1,11 @@
-"""flazel-lock-archives: writes flazel-archives.json, the (url, sha256)
-archives a build downloads that MODULE.bazel.lock does not record, for
-mkBcrCaches' extraArchives. See the README for usage.
+"""flazel-lock-archives: writes flazel-archives.json, the downloads a build
+makes (urls, sha256, canonical_id), for mkBcrCaches' archives. See the README
+for usage.
 
-The lockfile omits reproducible extensions, the root module's use_repo_rule
-repos and archive_override archives, so the tool asks Bazel instead of
-scraping ruleset sources:
+The lockfile records every module of the resolution, also those resolved
+only for their version, and omits reproducible extensions, the root
+module's use_repo_rule repos and archive_override archives, so the tool asks
+Bazel instead of scraping ruleset sources:
 
 1. `bazel mod graph --extension_info=all` lists every extension usage, with
    its imported and unimported repos; use_repo_rule repos appear as usages of
@@ -13,15 +14,15 @@ scraping ruleset sources:
    extension's canonical prefix.
 2. Unimported repos (hub-and-spoke spokes) are dumped by constructed
    canonical name: prefix + internal name.
-3. Non-registry overrides (graph key `<name>@_`) are dumped by module key. An
-   archive with an integrity is kept, a local repository skipped, anything
-   else refused.
+3. Modules, from the registry or an override, are dumped by module key: an
+   archive with an integrity is kept with its remote patches and overlay
+   files, a local repository skipped, anything else refused.
 
 All of it comes from the current resolution, in O(modules + chunks) bazel
-calls. The declared set is cut down to what an analysis of the build in a
-probe output base downloads into an empty repository cache; the probe's
-directories and server are removed on every exit. Every bazel call reads
-MODULE.bazel.lock and none writes it.
+calls. The declared set is cut down to what analyses of the build, one per
+argument group, each in a probe output base, download into an empty
+repository cache; each probe's directories and server are removed on every
+exit. Every bazel call reads MODULE.bazel.lock and none writes it.
 """
 import argparse
 import base64
@@ -41,6 +42,10 @@ SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 # The resolution the offline build uses is the locked one: read the lock,
 # never write it, and fail when it is stale.
 LOCKFILE = "--lockfile_mode=error"
+
+# Separates the observing builds' Bazel argument groups; Bazel takes no such
+# option or target pattern.
+GROUP_SEPARATOR = "--and"
 
 # While a probe exists, a signal is recorded instead of raised (see
 # on_signal), so that nothing can interrupt the probe's cleanup.
@@ -89,30 +94,68 @@ def show_visible_repos(base, chunk):
     return [], [], hidden
 
 
+def sri_hex(integrity):
+    """A sha256 SRI integrity as the hex bazel keys its repo cache by, or
+    None for any other algorithm."""
+    if not integrity.startswith("sha256-"):
+        return None
+    return base64.b64decode(integrity[len("sha256-"):]).hex()
+
+
+def literal_attr(block, attr, empty):
+    """A one-line attribute of a spec; show_repo prints strings, lists and
+    dicts of them in a form JSON reads."""
+    m = re.search(rf"^  {attr} = (.*?),?$", block, re.M)
+    return json.loads(m.group(1)) if m else empty
+
+
+def source_urls(block):
+    """The urls Bazel's http rules download from, in their order: url first,
+    then urls."""
+    url = literal_attr(block, "url", "")
+    return ([url] if url else []) + literal_attr(block, "urls", [])
+
+
+def download(urls, sha256, canonical_id):
+    """One download: the urls tried in order, the sha256 of its bytes and
+    the canonical id the spec sets, "" for none."""
+    return (urls, sha256, canonical_id)
+
+
 def parse_blocks(dump):
     """Split a show_repo dump into blocks, in argument order."""
     blocks = []
     for block in re.split(r"^## ", dump, flags=re.M)[1:]:
         rule = re.search(r"^(\w+)\($", block, re.M)
         name = re.search(r'^  name = "([^"]+)"', block, re.M)
-        url = re.search(r'^  urls? = \[?"([^"]+)"', block, re.M)
         sha = re.search(r'^  sha256 = "([^"]+)"', block, re.M)
-        sri = re.search(r'^  integrity = "sha256-([^"]+)"', block, re.M)
-        # Integrity SRI is converted to hex, the format bazel keys its
-        # repo cache by.
+        sri = re.search(r'^  integrity = "([^"]+)"', block, re.M)
         digest = sha.group(1) if sha else (
-            base64.b64decode(sri.group(1)).hex() if sri else None
+            sri_hex(sri.group(1)) if sri else None
         )
-        # Attributes naming downloads besides the archive itself.
-        more = re.findall(
-            r"^  (remote_patches|remote_file_urls) = \{[^}]", block, re.M
-        )
+        # Bazel's http rules download the archive under the canonical id
+        # the spec sets, else under its urls joined, and the remote patches
+        # and overlay files under the one the spec sets.
+        canonical_id = literal_attr(block, "canonical_id", "")
+        # Downloads besides the archive: remote patches, and the overlay
+        # files a registry layers onto sources that ship no Bazel build.
+        extra = [
+            download((u,), sri_hex(i), canonical_id)
+            for u, i in literal_attr(block, "remote_patches", {}).items()
+        ]
+        integrity = literal_attr(block, "remote_file_integrity", {})
+        for path, urls in literal_attr(block, "remote_file_urls", {}).items():
+            i = integrity.get(path)
+            extra.append(
+                download(tuple(urls), sri_hex(i) if i else None, canonical_id)
+            )
         blocks.append({
             "rule": rule.group(1) if rule else None,
             "canonical": name.group(1) if name else None,
-            "url": url.group(1) if url else None,
-            "sha256": digest,
-            "more_downloads": more,
+            "archive": download(
+                tuple(source_urls(block)), digest, canonical_id
+            ),
+            "extra": extra,
         })
     return blocks
 
@@ -124,15 +167,15 @@ def chunked(seq, n=200):
 
 def walk_graph(graph):
     """The extension usages per module key, deduplicated (the graph repeats
-    a module wherever it appears in the dependency tree), and the keys of
-    the non-registry overrides, which the graph versions as "_"."""
+    a module wherever it appears in the dependency tree), and the key of
+    every module but the root."""
     modules = {}
-    overrides = set()
+    keys = set()
 
     def walk(node):
         key = node.get("key")
-        if key and key.endswith("@_"):
-            overrides.add(key)
+        if key and key != "<root>":
+            keys.add(key)
         usages = node.get("extensionUsages")
         if key and usages and key not in modules:
             modules[key] = [
@@ -147,12 +190,18 @@ def walk_graph(graph):
             walk(dep)
 
     walk(graph)
-    return modules, sorted(overrides)
+    return modules, sorted(keys)
+
+
+def complete(d):
+    """Whether a download names a url and a sha256."""
+    urls, sha256, _ = d
+    return bool(urls and all(urls) and sha256)
 
 
 def extension_entries(modules):
-    """sha256 -> url of every archive the extension repos declare."""
-    entries = {}
+    """The download of every archive the extension repos declare."""
+    entries = set()
     prefixes = {}  # extension key -> canonical prefix
     dev_usages = set()  # (module key, extension key) Bazel ignores
 
@@ -180,8 +229,8 @@ def extension_entries(modules):
                     canonical = block["canonical"]
                     cut = max(canonical.rfind("~"), canonical.rfind("+"))
                     prefixes[ext] = canonical[:cut + 1]
-                if block["url"] and block["sha256"]:
-                    entries[block["sha256"]] = block["url"]
+                if complete(block["archive"]):
+                    entries.add(block["archive"])
 
     # Pass 2: unimported repos (spokes) by constructed canonical name.
     spokes = []
@@ -202,42 +251,39 @@ def extension_entries(modules):
         for block in parse_blocks(
             bazel("mod", "show_repo", LOCKFILE, *["@@" + c for c in chunk])
         ):
-            if block["url"] and block["sha256"]:
-                entries[block["sha256"]] = block["url"]
+            if complete(block["archive"]):
+                entries.add(block["archive"])
     return entries
 
 
-def override_entries(keys):
-    """sha256 -> url of every archive the module overrides declare.
+def module_entries(keys):
+    """Every download the modules declare: archive, remote patches and
+    overlay files.
 
-    A local override has nothing to fetch. Anything else must be a single
-    archive with a checksum, or the manifest cannot make it offline.
+    A local repository (a local_path_override, or a module flazel overrides)
+    has nothing to fetch. Anything else must be an archive whose every
+    download has a sha256, or the manifest cannot make it offline.
     """
-    entries = {}
-    if not keys:
-        return entries
-    blocks = parse_blocks(bazel("mod", "show_repo", LOCKFILE, *keys))
-    if len(blocks) != len(keys):
-        sys.exit(
-            f"show_repo returned {len(blocks)} blocks "
-            f"for {len(keys)} module overrides"
-        )
-    for key, block in zip(keys, blocks):
-        if block["rule"] == "local_repository":
-            continue
-        archive = block["rule"] in ("http_archive", "http_file")
-        if not (archive and block["url"] and block["sha256"]):
+    entries = set()
+    for chunk in chunked(keys):
+        blocks = parse_blocks(bazel("mod", "show_repo", LOCKFILE, *chunk))
+        if len(blocks) != len(chunk):
             sys.exit(
-                f"module override {key} ({block['rule']}) is not supported "
-                "offline: only an archive_override with an integrity is"
+                f"show_repo returned {len(blocks)} blocks "
+                f"for {len(chunk)} modules"
             )
-        if block["more_downloads"]:
-            sys.exit(
-                f"module override {key} sets "
-                f"{', '.join(block['more_downloads'])}, which is not "
-                "supported offline"
-            )
-        entries[block["sha256"]] = block["url"]
+        for key, block in zip(chunk, blocks):
+            if block["rule"] == "local_repository":
+                continue
+            archive = block["rule"] in ("http_archive", "http_file")
+            downloads = [block["archive"], *block["extra"]]
+            if not (archive and all(map(complete, downloads))):
+                sys.exit(
+                    f"module {key} ({block['rule']}) is not supported "
+                    "offline: only an archive whose every download has a "
+                    "sha256 integrity is"
+                )
+            entries.update(downloads)
     return entries
 
 
@@ -396,10 +442,12 @@ def observe(build_args):
 
 
 def manifest_of(entries, observed):
-    """The declared archives a build downloads, sorted by url. Empty only
-    when nothing is declared: a declared set the probe saw none of means the
-    probe observed the wrong build."""
-    kept = {s: u for s, u in entries.items() if s.lower() in observed}
+    """The declared downloads the builds make, sorted by url. Each is kept,
+    also where two share their bytes, since Bazel looks a download up by its
+    urls or canonical id too. Empty only when nothing is declared: a
+    declared set the probes saw none of means they observed the wrong
+    builds."""
+    kept = {d for d in entries if d[1].lower() in observed}
     if entries and not kept:
         sys.exit(
             f"observed {len(observed)} archives, none of the {len(entries)} "
@@ -409,40 +457,56 @@ def manifest_of(entries, observed):
         f"observed {len(kept)} of {len(entries)} declared archives",
         file=sys.stderr,
     )
-    return sorted(
-        ({"url": url, "sha256": sha} for sha, url in kept.items()),
-        key=lambda e: e["url"],
-    )
+    return [as_entry(d) for d in sorted(kept)]
 
 
-def derive(build_args):
-    """The manifest, from the current resolution and an observing build."""
+def as_entry(d):
+    urls, sha256, canonical_id = d
+    return {"urls": list(urls), "sha256": sha256,
+            "canonical_id": canonical_id}
+
+
+def derive(build_arg_groups):
+    """The manifest, from the current resolution and one observing build
+    per argument group."""
     graph = json.loads(
         bazel("mod", "graph", LOCKFILE, "--extension_info=all",
               "--output=json")
     )
-    modules, overrides = walk_graph(graph)
+    modules, keys = walk_graph(graph)
     entries = extension_entries(modules)
-    entries.update(override_entries(overrides))
-    # The graph lists every repo a ruleset could create and Bazel fetches
-    # them lazily, so crate_universe declares one per Cargo-lockfile crate
-    # while a build links a fraction.
-    return manifest_of(entries, observe(build_args))
+    entries.update(module_entries(keys))
+    # The graph lists every repo a ruleset could create and every module
+    # the version resolution visited, and Bazel fetches them lazily, so
+    # crate_universe declares one repo per Cargo-lockfile crate while a
+    # build links a fraction.
+    observed = set()
+    for build_args in build_arg_groups:
+        observed |= observe(build_args)
+    return manifest_of(entries, observed)
 
 
 def as_set(manifest):
-    return {(e["url"], e["sha256"].lower()) for e in manifest}
+    return {
+        (tuple(e["urls"]), e["sha256"].lower(), e["canonical_id"])
+        for e in manifest
+    }
 
 
 def check(manifest, path):
     """Exit status of comparing manifest with the file at path."""
     with open(path) as f:
-        committed = as_set(json.load(f))
+        loaded = json.load(f)
+    if any("urls" not in e for e in loaded):
+        print(f"{path} has entries without urls; regenerate it",
+              file=sys.stderr)
+        return 1
+    committed = as_set(loaded)
     derived = as_set(manifest)
-    for url, _ in sorted(derived - committed):
-        print(f"missing: {url}", file=sys.stderr)
-    for url, _ in sorted(committed - derived):
-        print(f"extra: {url}", file=sys.stderr)
+    for urls, _, _ in sorted(derived - committed):
+        print(f"missing: {' '.join(urls)}", file=sys.stderr)
+    for urls, _, _ in sorted(committed - derived):
+        print(f"extra: {' '.join(urls)}", file=sys.stderr)
     if derived != committed:
         print(f"{path} is stale; regenerate it", file=sys.stderr)
         return 1
@@ -450,21 +514,38 @@ def check(manifest, path):
     return 0
 
 
+def build_arg_groups(args):
+    """The observing builds' Bazel arguments, split at each GROUP_SEPARATOR;
+    Bazel's own `--` before negative target patterns stays in its group."""
+    groups = [[]]
+    for arg in args:
+        if arg == GROUP_SEPARATOR:
+            groups.append([])
+        else:
+            groups[-1].append(arg)
+    if not all(groups):
+        sys.exit(f"empty Bazel argument group around {GROUP_SEPARATOR}")
+    return groups
+
+
 def parse_args(argv):
-    """Flags before `--`, the observing build's Bazel arguments after."""
+    """Flags before `--`, the observing builds' Bazel arguments after."""
     cut = argv.index("--") if "--" in argv else len(argv)
     parser = argparse.ArgumentParser(
         prog="flazel-lock-archives",
-        usage="%(prog)s [--check] [--output PATH] [-- BAZEL_BUILD_ARGS...]",
-        description="Write the archive manifest of the build that "
-        "BAZEL_BUILD_ARGS (default //...) describe.",
+        usage="%(prog)s [--check] [--output PATH] "
+        f"[-- BAZEL_BUILD_ARGS... [{GROUP_SEPARATOR} BAZEL_BUILD_ARGS...]...]",
+        description="Write the archive manifest of the builds that the "
+        f"BAZEL_BUILD_ARGS groups, separated by {GROUP_SEPARATOR}, describe "
+        "(default //...): the union of what each downloads.",
     )
     parser.add_argument(
         "--check",
         action="store_true",
         help="derive the manifest and compare it with PATH as a set of "
-        "(url, sha256), printing each missing and extra url; exit 1 on any "
-        "difference or a missing PATH. Never writes PATH.",
+        "(urls, sha256, canonical_id), printing each missing and extra "
+        "one; exit 1 on any difference or a missing PATH. Never writes "
+        "PATH.",
     )
     parser.add_argument(
         "--output",
@@ -472,7 +553,7 @@ def parse_args(argv):
         help="the manifest (default: <workspace>/flazel-archives.json)",
     )
     opts = parser.parse_args(argv[:cut])
-    opts.build_args = argv[cut + 1:] or ["//..."]
+    opts.build_arg_groups = build_arg_groups(argv[cut + 1:] or ["//..."])
     return opts
 
 
@@ -487,7 +568,7 @@ def main():
     if opts.check and not os.path.isfile(out):
         sys.exit(f"{out} does not exist; nothing to check")
 
-    manifest = derive(opts.build_args)
+    manifest = derive(opts.build_arg_groups)
     if opts.check:
         sys.exit(check(manifest, out))
     with open(out, "w") as f:

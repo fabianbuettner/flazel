@@ -34,6 +34,7 @@
           flazel.lib.mkBcrCaches {
             inherit pkgs;
             lockFile = flazel.lib.parseLockFile variant.lockFile;
+            archives = flazel.lib.parseArchiveManifest variant.archives;
           };
         caches = cachesFor variants.default;
 
@@ -1321,6 +1322,7 @@
         apps.update-locks = flazel.lib.mkUpdateLocksApp {
           inherit pkgs;
           shells = builtins.attrNames otherVariants;
+          probes = [ [ "//..." ] ];
         };
       }
     );

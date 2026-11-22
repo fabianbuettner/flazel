@@ -54,9 +54,7 @@
           flazel.lib.mkBcrCaches {
             inherit pkgs;
             lockFile = flazel.lib.parseLockFile variant.lockFile;
-            # Downloads hidden from the lockfile by reproducible module
-            # extensions (rules_rust internal crates).
-            extraArchives = flazel.lib.parseArchiveManifest variant.archives;
+            archives = flazel.lib.parseArchiveManifest variant.archives;
           };
 
         # Hermetic build of a rust binary through mkDerivation, then run it.
@@ -108,7 +106,7 @@
         apps.update-locks = flazel.lib.mkUpdateLocksApp {
           inherit pkgs;
           shells = builtins.attrNames (removeAttrs variants [ "default" ]);
-          archives = true;
+          probes = [ [ "//..." ] ];
         };
       }
     );

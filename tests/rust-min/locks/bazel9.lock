@@ -203,7 +203,7 @@
   "moduleExtensions": {
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
+        "bzlTransitiveDigest": "2ghxfJsDX2QuFbODZco4sACKJJDAeTjNmml0rmbR28s=",
         "usagesDigest": "UlQIg0+Y+bRq5Y0QxAVQyX/6aegtWH29EbC+hI8pu2U=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
@@ -228,7 +228,7 @@
     },
     "@@flazel+//bazel:nix_rust.bzl%nix_rust": {
       "general": {
-        "bzlTransitiveDigest": "m+Zl7Rh1oAkij1n/867QB51drPorhPJyFu7TRC62IRY=",
+        "bzlTransitiveDigest": "s7VEFsGGg4EdihXQ7lEn3cPmsipDtgaWrHyGIdbaFgw=",
         "usagesDigest": "VASIF3Z7IE2XG4CNoaTrpG775N5lHeGfDbIGGt/MWyY=",
         "recordedInputs": [],
         "generatedRepoSpecs": {

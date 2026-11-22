@@ -20,7 +20,7 @@ extension. Without it, analysis fails with "No repository visible as
 '@rules_rust'".
 """
 
-load(":nix_common.bzl", "NIX_DEPS_DIR", "dir_exists", "init_extension", "repo_source", "resolve_path", "symlink_if_exists")
+load(":nix_common.bzl", "GENERATED_BUILD", "NIX_DEPS_DIR", "dir_exists", "init_extension", "repo_source", "resolve_path", "symlink_if_exists")
 
 def _write_rust_stub(repository_ctx, name):
     """Writes a stub repo for an absent Rust toolchain (a bare, empty package)."""
@@ -45,7 +45,7 @@ def _nix_rust_repo_impl(repository_ctx):
     if not present:
         _write_rust_stub(repository_ctx, name)
         return
-    repository_ctx.symlink(path + "/BUILD.bazel", "BUILD.bazel")
+    repository_ctx.symlink(path + "/" + GENERATED_BUILD, "BUILD.bazel")
 
     symlink_if_exists(repository_ctx, path + "/bin", "bin")
     symlink_if_exists(repository_ctx, path + "/lib", "lib")

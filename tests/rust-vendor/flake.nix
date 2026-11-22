@@ -50,9 +50,7 @@
           {
             caches = flazel.lib.mkBcrCaches {
               inherit pkgs lockFile;
-              # Downloads hidden from the lockfile by reproducible module
-              # extensions (rules_rust internal crates).
-              extraArchives = flazel.lib.parseArchiveManifest variant.archives;
+              archives = flazel.lib.parseArchiveManifest variant.archives;
             };
             # The variant's lockfile is written by a dev shell that already
             # needs cargo-bazel; until then the default one, which declares
@@ -114,7 +112,7 @@
         apps.update-locks = flazel.lib.mkUpdateLocksApp {
           inherit pkgs;
           shells = builtins.attrNames (removeAttrs variants [ "default" ]);
-          archives = true;
+          probes = [ [ "//..." ] ];
         };
       }
     );

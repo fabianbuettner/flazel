@@ -2,7 +2,7 @@
 #
 # Creates a Bazel-compatible repository with:
 # - MODULE.bazel declaring the module
-# - BUILD.bazel with cc_library/cc_import rules
+# - its BUILD file (constants.nix generatedBuild) with cc_library/cc_import rules
 # - include/ directory with headers
 # - lib/ directory with static or dynamic libraries
 #
@@ -25,6 +25,7 @@
   getTransitiveDeps ? (import ../core/utils.nix pkgs),
 }:
 let
+  inherit (import ../core/constants.nix) generatedBuild;
   # Where a package keeps its libraries: the `lib` output when it splits one out
   # (e.g. brotli), otherwise `out`. Resolving `out` alone dropped split-output
   # libs from the static closure.
@@ -152,7 +153,7 @@ let
   # so the relative entry still wins when present.
   rpathAttr = "\n    linkopts = [\"-Wl,-rpath,${libPkg}/lib\"],";
 
-  # BUILD.bazel content for dynamic linking. Takes the rpath attribute so the header-only
+  # BUILD file content for dynamic linking. Takes the rpath attribute so the header-only
   # case can drop it without a second copy of the rule.
   dynamicBuildContent = linkoptsAttr: ''
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
@@ -209,30 +210,30 @@ let
     fi
   '';
 
-  # Symlink the library directory and write the matching BUILD.bazel: one build-time
+  # Symlink the library directory and write the matching BUILD file: one build-time
   # test of lib/ serves both. Build-time on purpose -- builtins.pathExists on a store
   # path realises it (import from derivation).
   generateDynamicBuild = ''
     if [ -d "${libPkg}/lib" ]; then
       ln -s "${libPkg}/lib" $out/lib
-      cat > $out/BUILD.bazel <<'DYNEOF'
+      cat > $out/${generatedBuild} <<'DYNEOF'
     ${dynamicBuildContent rpathAttr}
     DYNEOF
     else
       # Header-only: nothing to point an rpath at, and no .so to resolve.
       mkdir -p $out/lib
-      cat > $out/BUILD.bazel <<'DYNHEADERONLY'
+      cat > $out/${generatedBuild} <<'DYNHEADERONLY'
     ${dynamicBuildContent ""}
     DYNHEADERONLY
     fi
   '';
 
-  # Generate BUILD.bazel for a static repo. One merged archive (when present)
+  # Generate the BUILD file for a static repo. One merged archive (when present)
   # becomes one cc_import wrapped in the cc_library; a header-only package (no
   # archives) is just the cc_library with its includes.
   generateStaticBuild = ''
     if [ -e "$out/${mergedArchive}" ]; then
-      cat > $out/BUILD.bazel <<'STATICEOF'
+      cat > $out/${generatedBuild} <<'STATICEOF'
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
     load("@rules_cc//cc:cc_import.bzl", "cc_import")
     load(":package_attrs.bzl", "INCLUDES")
@@ -253,7 +254,7 @@ let
     STATICEOF
     else
       # Header-only library - just a cc_library with includes.
-      cat > $out/BUILD.bazel <<'HEADERONLY'
+      cat > $out/${generatedBuild} <<'HEADERONLY'
     load("@rules_cc//cc:cc_library.bzl", "cc_library")
     load(":package_attrs.bzl", "INCLUDES")
 
@@ -303,13 +304,13 @@ pkgs.runCommand "nixpkgs-${name}"
     ${
       if static then
         ''
-          # Static: merge the archive closure into one .a, then generate BUILD.bazel.
+          # Static: merge the archive closure into one .a, then generate the BUILD file.
           ${mergeStaticLibs}
           ${generateStaticBuild}
         ''
       else
         ''
-          # Dynamic: symlink the libraries, then generate BUILD.bazel.
+          # Dynamic: symlink the libraries, then generate the BUILD file.
           ${generateDynamicBuild}
         ''
     }

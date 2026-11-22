@@ -1,0 +1,19 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+config_setting(
+    name = "lz4",
+    define_values = {"compressor": "lz4"},
+)
+
+cc_binary(
+    name = "hello",
+    srcs = ["main.cc"],
+    local_defines = select({
+        ":lz4": ["USE_LZ4"],
+        "//conditions:default": [],
+    }),
+    deps = select({
+        ":lz4": ["@lz4"],
+        "//conditions:default": ["@zlib"],
+    }),
+)

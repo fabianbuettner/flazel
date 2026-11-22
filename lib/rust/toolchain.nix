@@ -28,6 +28,7 @@
   extraExtensions ? [ ],
 }:
 let
+  inherit (import ../core/constants.nix) generatedBuild;
   platform = import ../core/platform.nix;
 
   extensions = [
@@ -222,7 +223,7 @@ let
   localConfigRust = pkgs.runCommand "local_config_rust_${toolchainName}" { } ''
     mkdir -p $out
 
-    cp ${rustToolchainBuild} $out/BUILD.bazel
+    cp ${rustToolchainBuild} $out/${generatedBuild}
     ln -s ${rustToolchain}/bin $out/bin
 
     # Recreate lib/ structure with only what Bazel needs

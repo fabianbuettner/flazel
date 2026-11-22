@@ -150,7 +150,7 @@
   "moduleExtensions": {
     "@@flazel+//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
+        "bzlTransitiveDigest": "2ghxfJsDX2QuFbODZco4sACKJJDAeTjNmml0rmbR28s=",
         "usagesDigest": "WNqUHLluSAQnyHiKBmYe8aOjIbXpmC8ih4cklwcIFaA=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},

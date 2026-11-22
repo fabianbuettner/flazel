@@ -1,0 +1,45 @@
+## libpfm@4.11.0.bcr.1:
+load("@@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+http_archive(
+  name = "libpfm+",
+  urls = ["https://netcologne.dl.sourceforge.net/project/perfmon2/libpfm4/libpfm-4.11.0.tar.gz"],
+  integrity = "sha256-XaX4hyveFLNjTJaI2YD2i9ootRAmhyPMEpc+7bq5/sw=",
+  strip_prefix = "libpfm-4.11.0",
+  remote_patches = {"https://bcr.bazel.build/modules/libpfm/4.11.0.bcr.1/patches/module_dot_bazel.patch": "sha256-D7BWrY0WiihCq9XSiVifZWK3sMLbI2chCsgddKJ38kM=", "https://bcr.bazel.build/modules/libpfm/4.11.0.bcr.1/patches/add_build_file.patch": "sha256-ibpLPyX2v/fbDytUuK4PKeZl/q303bWtSRTU95g5jz0="},
+  remote_file_urls = {},
+  remote_file_integrity = {},
+  remote_module_file_urls = ["https://bcr.bazel.build/modules/libpfm/4.11.0.bcr.1/MODULE.bazel"],
+  remote_module_file_integrity = "sha256-5TYtrckKq2ckyDosweZ8vtnImgXZf7H5AFPI3rHkRcg=",
+  remote_patch_strip = 1,
+)
+
+## lz4@1.10.0.bcr.2:
+load("@@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+http_archive(
+  name = "lz4+",
+  urls = ["https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz"],
+  integrity = "sha256-U3USkEdEs14jKRIFXM+Oxm12hjn/Or5XiNkNeS7F9Is=",
+  strip_prefix = "lz4-1.10.0",
+  remote_patches = {},
+  remote_file_urls = {"BUILD.bazel": ["https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/overlay/BUILD.bazel"], "MODULE.bazel": ["https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/overlay/MODULE.bazel"], "programs/BUILD.bazel": ["https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/overlay/programs/BUILD.bazel"]},
+  remote_file_integrity = {"BUILD.bazel": "sha256-+PZ3wxxEQKN6QlKKeyxG7BhiompGPl1/SSgZ7haz4/s=", "MODULE.bazel": "sha256-vy2ayS3Tt5LlFMpBKWXXiGO6OgU0THf0EJtNqo3YHas=", "programs/BUILD.bazel": "sha256-T3vQpof7NkLrIYn/yulPOX56mNPmsGuSosKoxMEJoy4="},
+  remote_module_file_urls = ["https://bcr.bazel.build/modules/lz4/1.10.0.bcr.2/MODULE.bazel"],
+  remote_module_file_integrity = "sha256-vy2ayS3Tt5LlFMpBKWXXiGO6OgU0THf0EJtNqo3YHas=",
+  remote_patch_strip = 0,
+)
+
+## rules_cc@0.2.27:
+load("@@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+http_archive(
+  name = "rules_cc+",
+  urls = ["https://github.com/bazelbuild/rules_cc/releases/download/0.2.27/rules_cc-0.2.27.tar.gz"],
+  integrity = "sha256-a88bRtnmKcvkyW17/Fb2EDTCGTt7FgASASgupQvvXZE=",
+  strip_prefix = "rules_cc-0.2.27",
+  remote_patches = {"https://bcr.bazel.build/modules/rules_cc/0.2.27/patches/module_dot_bazel_version.patch": "sha256-LA0Br9nwHaYMbhVRBrMGtD3+yiK7sLY2Cz+j53yFVoU="},
+  remote_file_urls = {},
+  remote_file_integrity = {},
+  remote_module_file_urls = ["https://bcr.bazel.build/modules/rules_cc/0.2.27/MODULE.bazel"],
+  remote_module_file_integrity = "sha256-mUg2me66PsEVnpONckE0di50jo3BbdDYy8w9AaPRlEA=",
+  remote_patch_strip = 1,
+)
+

@@ -5,3 +5,13 @@ cc_binary(
     srcs = ["main.cc"],
     target_compatible_with = ["@platforms//os:linux"],
 )
+
+genrule(
+    name = "downloads",
+    srcs = [
+        "@two_urls//file",
+        "@with_canonical_id//file",
+    ],
+    outs = ["downloads.txt"],
+    cmd = "cat $(SRCS) > $@",
+)

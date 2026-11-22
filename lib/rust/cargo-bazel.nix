@@ -5,8 +5,8 @@
 # source tree so crate_universe can resolve Cargo dependencies.
 #
 # The rules_rust version and source archive are derived from the consumer's
-# MODULE.bazel.lock (the MVS-resolved version's BCR source.json, same
-# machinery as mkBcrCaches), so the generator can never skew from the
+# MODULE.bazel.lock (the MVS-resolved version's BCR source.json), so
+# the generator can never skew from the
 # bazel_dep the build actually uses. The only flazel-maintained datum is
 # cargoHashes: one vendored-deps hash per supported rules_rust version,
 # which doubles as the registry of versions the release-parse patch has

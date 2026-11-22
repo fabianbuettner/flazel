@@ -29,10 +29,11 @@
           root = ./.;
         };
         cachesFor =
-          variant:
+          servedArchives: variant:
           flazel.lib.mkBcrCaches {
             inherit pkgs;
             lockFile = flazel.lib.parseLockFile variant.lockFile;
+            archives = flazel.lib.parseArchiveManifest variant.archives ++ servedArchives;
           };
 
         # Builds two genrules driven by a Nix devshell tool (tr, exposed as
@@ -44,7 +45,7 @@
           flazel.lib.mkFlazelDerivation {
             inherit pkgs;
             inherit (variant) bazel;
-            caches = cachesFor variant;
+            caches = cachesFor [ ] variant;
             lockFile = variant.lockOverride;
             name = "flazel-nix-tool${variant.suffix}";
             src = ./.;
@@ -74,11 +75,11 @@
           };
 
         mkShell =
-          variant:
+          servedArchives: variant:
           flazel.lib.mkFlazelDevShell {
             inherit pkgs;
             inherit (variant) bazel lockfileMode;
-            caches = cachesFor variant;
+            caches = cachesFor servedArchives variant;
             packages = [ pkgs.gnused ];
           };
 
@@ -92,7 +93,7 @@
           }
           if [ "$2" = --command ]; then
             export PATH="${variants.default.bazel}/bin:$PATH"
-            . ${pkgs.writeText "hook-default" (mkShell variants.default).shellHook} >/dev/null
+            . ${pkgs.writeText "hook-default" (mkShell refreshArchives variants.default).shellHook} >/dev/null
             shift 2
             exec "$@"
           fi
@@ -104,7 +105,9 @@
           ${pkgs.lib.concatMapStrings (shell: ''
             ".#${shell}")
               export PATH="${variants.${shell}.bazel}/bin:$PATH"
-              . ${pkgs.writeText "hook-${shell}" (mkShell variants.${shell}).shellHook} >/dev/null
+              . ${
+                pkgs.writeText "hook-${shell}" (mkShell refreshArchives variants.${shell}).shellHook
+              } >/dev/null
               ;;
           '') lockShells}
           *)
@@ -129,6 +132,54 @@
           }) (pkgs.lib.filterAttrs (url: _: pkgs.lib.hasPrefix bcr url) registryFiles)
         );
 
+        # A lock refresh fetches modules no build reads (rules_java, buildozer,
+        # ...), so no manifest holds them: serve every module's downloads, as
+        # the registry would online. Test-only: a sandbox cannot refresh a lock
+        # any other way.
+        refreshArchives =
+          pkgs.lib.concatMap
+            (
+              url:
+              let
+                base = pkgs.lib.removeSuffix "/source.json" url;
+                source = builtins.fromJSON (
+                  builtins.readFile (
+                    builtins.fetchurl {
+                      inherit url;
+                      sha256 = registryFiles.${url};
+                    }
+                  )
+                );
+                hex =
+                  hash:
+                  builtins.convertHash {
+                    inherit hash;
+                    toHashFormat = "base16";
+                  };
+                files =
+                  subdir:
+                  pkgs.lib.mapAttrsToList (name: hash: {
+                    urls = [ "${base}/${subdir}/${name}" ];
+                    sha256 = hex hash;
+                    canonical_id = "";
+                  }) (source.${subdir} or { });
+              in
+              [
+                {
+                  urls = [ source.url ];
+                  sha256 = hex source.integrity;
+                  canonical_id = "";
+                }
+              ]
+              ++ files "patches"
+              ++ files "overlay"
+            )
+            (
+              builtins.filter (url: pkgs.lib.hasPrefix bcr url && pkgs.lib.hasSuffix "/source.json" url) (
+                builtins.attrNames registryFiles
+              )
+            );
+
         # Every lockfile keeps its format; a failing step fails the app and
         # leaves no server behind to rewrite one.
         mkUpdateLocksCheck =
@@ -137,9 +188,26 @@
             app = flazel.lib.mkUpdateLocksApp {
               inherit pkgs;
               shells = lockShells;
-              archives = failing;
+              probes = [
+                [ "//..." ]
+                [
+                  "-c"
+                  "opt"
+                  "//:via_bin"
+                ]
+              ];
             };
-            failingArchives = pkgs.writeShellScriptBin "flazel-lock-archives" "exit 1";
+            # The probe needs the network; this stands in for it and records
+            # the arguments it receives.
+            lockArchives = pkgs.writeShellScriptBin "flazel-lock-archives" (
+              if failing then
+                "exit 1"
+              else
+                ''
+                  printf '%s\n' "$*" >> "$TMPDIR/lock-archives-args"
+                  echo '[]' > flazel-archives.json
+                ''
+            );
           in
           pkgs.stdenv.mkDerivation {
             inherit name;
@@ -148,12 +216,11 @@
               nixShim
               variants.default.bazel
               pkgs.jq
-            ]
-            ++ pkgs.lib.optional failing failingArchives;
+              lockArchives
+            ];
             buildPhase = ''
               export HOME=$TMPDIR
               echo "common --registry=file://${localRegistry}" > $HOME/.bazelrc
-              ${pkgs.lib.optionalString failing "echo '[]' > flazel-archives.json"}
               cp MODULE.bazel.lock $TMPDIR/root.lock
               cp -r locks $TMPDIR/committed
               failed=0
@@ -176,6 +243,12 @@
                   want=$(jq .lockFileVersion $TMPDIR/committed/$shell.lock)
                   got=$(jq .lockFileVersion locks/$shell.lock)
                   echo "locks/$shell.lock: format $got (committed: $want)"
+                  [ "$got" = "$want" ] || failed=1
+                done
+                want='-- //... --and -c opt //:via_bin'
+                for line in 1 2 3; do
+                  got=$(sed -n "''${line}p" "$TMPDIR/lock-archives-args")
+                  echo "flazel-lock-archives run $line: $got"
                   [ "$got" = "$want" ] || failed=1
                 done
               ''}
@@ -202,12 +275,13 @@
           };
 
         # Manual exploration: nix develop (or .#bazel8, ...), then `bazel build //...`.
-        devShells = builtins.mapAttrs (_: mkShell) variants;
+        devShells = builtins.mapAttrs (_: mkShell [ ]) variants;
 
         # nix run .#update-locks regenerates locks/ (run in this directory).
         apps.update-locks = flazel.lib.mkUpdateLocksApp {
           inherit pkgs;
           shells = lockShells;
+          probes = [ [ "//..." ] ];
         };
       }
     );

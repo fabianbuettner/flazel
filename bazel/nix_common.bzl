@@ -9,6 +9,11 @@ with .nix-bazel-deps/.
 # line in the form `NAME = "value"`.
 NIX_DEPS_DIR = ".nix-bazel-deps"
 
+# Name of the BUILD file of each repo the Nix side generates in NIX_DEPS_DIR,
+# which the repository rules install as BUILD.bazel. Not a BUILD file name, so
+# the deps dir holds no package for `//...` to load.
+GENERATED_BUILD = "repo.BUILD"
+
 def path_exists(ctx, path):
     """Check if a file/path exists (works with both repository_ctx and module_ctx).
 
@@ -82,7 +87,7 @@ def repo_source(repository_ctx):
     """Common preamble for the Nix toolchain/deps repository rules.
 
     Resolves the repo's Nix source dir (from its `path` attr) and reports whether
-    it is present, using the BUILD.bazel as the presence marker. When absent the
+    it is present, using its GENERATED_BUILD as the presence marker. When absent the
     repo rule writes a stub instead of symlinking (see nix_cc.bzl / nix_rust.bzl),
     which is what keeps the generated repo specs portable across environments.
 
@@ -90,7 +95,7 @@ def repo_source(repository_ctx):
       A (path, present) tuple: the absolute source dir and whether it exists.
     """
     path = resolve_path(repository_ctx, repository_ctx.attr.path)
-    return path, path_exists(repository_ctx, path + "/BUILD.bazel")
+    return path, path_exists(repository_ctx, path + "/" + GENERATED_BUILD)
 
 def init_extension(module_ctx):
     """Common preamble for Nix module extensions.

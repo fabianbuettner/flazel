@@ -137,10 +137,10 @@
   "moduleExtensions": {
     "@@flazel~//bazel:nix_cc.bzl%nix_cc": {
       "general": {
-        "bzlTransitiveDigest": "hnepfg2KplCF+W4221F3bRvWE2Cyf4zrEoBD27oN0DE=",
+        "bzlTransitiveDigest": "2ghxfJsDX2QuFbODZco4sACKJJDAeTjNmml0rmbR28s=",
         "usagesDigest": "cW/aUJAL/Fy8mYc1fM3ed96Wi7CSR0F5rQ2YEHvxcmY=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "11d8c355da443a0e54c245d0933b082fc956fd501d5f1459942ca69d375c103f"
+          "@@//MODULE.bazel": "255fe53d271ab9d1c688b015001fc4936b26db278f58179b58b77e7b25a03fe6"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},
