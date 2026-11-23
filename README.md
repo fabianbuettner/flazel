@@ -320,9 +320,11 @@ The groups go to `bazel build --nobuild`, so options under `test:` in
 it, and fails if it is stale: after a dependency change, refresh the lockfile
 first, then the manifest (`update-locks` does both). `--check` derives it
 afresh, with the same groups, and compares it with the committed file,
-printing the urls of each `missing:` and `extra:` download and exiting 1 on any difference, so
-a CI step catches a stale manifest in both directions. A `git_override`, and
-any module download without a sha256 integrity, are refused.
+printing the urls of each `missing:` and `extra:` download and exiting 3 on
+any difference, so a CI step catches a stale manifest in both directions. Any
+other failure (a missing file, a failed probe build) exits with another
+non-zero status. A `git_override`, and any module download without a sha256
+integrity, are refused.
 
 `parseArchiveManifest` fails evaluation when the file is absent, so a manifest
 that is not tracked by git cannot silently empty the cache. The dev shell
@@ -412,11 +414,64 @@ A project with a single Bazel passes `shells = [ ]` and gets no `locks/`.
 `MODULE.bazel.lock` with `bazel mod deps --lockfile_mode=error` and, if the
 lock is current, `flazel-archives.json` with `flazel-lock-archives --check`,
 using the same `probes`. It names each file that is missing or fails the
-check, and exits 1, so a CI step catches either going stale. An interrupt
-stops it with 130 or 143, a dev shell that cannot be entered with that
-failure's status. If the app itself is killed, the check ends with it, except
-on darwin, where it runs to its end. `--check` does not support Bazel-version shells yet: with
-`shells != [ ]` it exits 2.
+check, and exits 1, so a CI step catches either going stale; no other
+outcome exits 1. Bazel exits alike for a stale lock and for any other
+error, so a stale lock is told by Bazel's own messages, those asking to
+"update your lockfile" and those naming what "does not exist in the
+lockfile" (the patterns are in `lib/core/update-locks.nix`). A check that
+cannot run (any other Bazel error, such as a `MODULE.bazel` syntax error
+or an unreachable registry, or a `flazel-lock-archives` failure other
+than a differing manifest, such as a failed probe build) stops the check
+with 8, naming the file after the tool's own error. A wrong argument
+exits 2, an interrupt 130 or 143. A dev shell that Nix fails to evaluate
+(`nix print-dev-env`), or whose setup exits (a `shellHook` that calls
+`exit`), stops either mode with 7; the check names what failed before it
+stops with 5, 6, 7 or 8. Update mode stops on any other failure with 8,
+naming the files after the tool's own error, so 1 stays a stale file's
+and 2 a wrong argument's. A command the app runs in a dev shell that
+fails, or a function from its setup that exits (a `bazel()` wrapper
+calling `exit`), stops either mode with 8, whatever its status, so 5, 6
+and 7 are the app's own. If the app itself is killed, the check ends with
+it, except on darwin, where it runs to its end. With Bazel-version shells
+it checks each version's `locks/<version>.lock` and manifest the same way;
+without `MODULE.bazel.lock`, which each version's lock is mounted over, it
+checks no version and names each as not checked. Each mode keeps the dev
+shell setups Nix evaluated in a scratch directory under `$TMPDIR`, removed
+when the app ends, unless it is killed with SIGKILL; one it cannot make
+stops it with 8. Each setup is sourced into the shell that runs Bazel,
+default and versions alike, so a `shellHook`'s functions and unexported
+variables (a `bazel()` wrapper, say) apply too. Nix runs with stdin from
+`/dev/null`, so it cannot ask about a flake's `nixConfig` and ignores
+settings not yet trusted: accept them once interactively (`nix develop`),
+or run the app with `NIX_CONFIG='accept-flake-config = true'`
+(`nix run --accept-flake-config` does not reach the Nix the app runs).
+
+The default Bazel runs in the project directory as it is. Each other version,
+in both modes, runs there too, in a private mount and pid namespace
+(bubblewrap, so variants need Linux; on darwin an app with shells refuses).
+Nix evaluates its dev shell outside, against the project as it is. Inside,
+its lock is mounted over `MODULE.bazel.lock`, and its manifest is written to
+`locks/<version>.archives.json` directly (`flazel-lock-archives --output`).
+tmpfs mounts hold the `.nix-bazel-deps` its dev shell writes, the default
+Bazel's output base and the directory of its install base (as `bazel info`
+reports them, so also ones a `.bazelrc` sets) and its `TMPDIR`, which holds
+the dev shell setup Nix evaluated, so the version's output base, install
+base and the repositories its probes fetch live in RAM. Bazel's repository
+cache is not among them: each version's downloads land in the shared
+on-disk cache, which is content-addressed, so no version fetches an archive
+another already has. If the version's Bazel reports other bases, the app
+exits 5 before that Bazel runs a command (`bazel info` itself may already
+have created them), and so it does if a mount would hide the project
+(symlinks resolved); the default Bazel or a version's that cannot answer
+`bazel info`, or a `.nix-bazel-deps` the app cannot make, stops it with 8.
+If the namespace cannot be made (no user namespaces, a mount in it that
+fails, or darwin), it exits 6. Outside, Nix evaluations and the default dev
+shell keep seeing the project's own files; untracked files and overrides
+pointing outside the project apply as in the default shell.
+When the namespace ends, even by SIGKILL of the app, everything in it ends
+too, Bazel's server included, and an interrupted app returns only after
+that. A version's lock under `locks/` is replaced whole. Update mode stops
+on an interrupt or the app's death as the check does.
 
 ## How it works
 

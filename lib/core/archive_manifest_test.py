@@ -24,6 +24,8 @@ MODULE_PY, TESTDATA = sys.argv[1], sys.argv[2]
 spec = importlib.util.spec_from_file_location("archive_manifest", MODULE_PY)
 am = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(am)
+# Some tests replace observe; this is the one archive_manifest.py defines.
+REAL_OBSERVE = am.observe
 
 VERSIONS = (7, 8, 9)
 KEYS = ["flazel@_", "platforms@_"]
@@ -276,26 +278,74 @@ class Check(unittest.TestCase):
     def test_a_missing_module_entry_is_stale(self):
         derived = entries(RULES_CC)
         self.committed(derived[1:])
-        self.assertEqual(am.check(derived, self.path), 1)
+        self.assertEqual(am.check(derived, self.path), 3)
 
     def test_an_extra_module_entry_is_stale(self):
         derived = entries(RULES_CC)
         self.committed(derived + entries(LIBPFM))
-        self.assertEqual(am.check(derived, self.path), 1)
+        self.assertEqual(am.check(derived, self.path), 3)
 
     def test_another_canonical_id_is_stale(self):
         derived = entries(RULES_CC)
         self.committed([dict(e, canonical_id="x") for e in derived])
-        self.assertEqual(am.check(derived, self.path), 1)
+        self.assertEqual(am.check(derived, self.path), 3)
 
     def test_a_manifest_without_urls_is_refused(self):
         self.committed([{"url": URL, "sha256": SHA}])
-        self.assertEqual(am.check(entries({SHA: URL}), self.path), 1)
+        self.assertEqual(am.check(entries({SHA: URL}), self.path), 3)
 
     def test_the_same_set_is_current(self):
         derived = entries(RULES_CC)
         self.committed(list(reversed(derived)))
         self.assertEqual(am.check(derived, self.path), 0)
+
+
+class CheckStatus(unittest.TestCase):
+    """main() with --check: 3 for a manifest that differs, another non-zero
+    status for every other failure."""
+
+    def setUp(self):
+        self.saved = {
+            name: getattr(am, name) for name in ("bazel", "observe", "probe")
+        }
+        self.handlers = {s: am.signal.getsignal(s) for s in am.SIGNALS}
+        self.argv = sys.argv
+        am.bazel = answering('{"key": "<root>"}')
+        am.observe = REAL_OBSERVE
+        self.dir = tempfile.mkdtemp()
+        self.path = os.path.join(self.dir, "flazel-archives.json")
+        with open(self.path, "w") as f:
+            am.json.dump(entries({SHA: URL}), f)
+
+    def tearDown(self):
+        for name, value in self.saved.items():
+            setattr(am, name, value)
+        for s, handler in self.handlers.items():
+            am.signal.signal(s, handler)
+        sys.argv = self.argv
+        shutil.rmtree(self.dir)
+
+    def status(self):
+        """The process's exit status from main()."""
+        sys.argv = ["flazel-lock-archives", "--check", "--output", self.path]
+        with self.assertRaises(SystemExit) as cm:
+            am.main()
+        self.code = cm.exception.code
+        return self.code if isinstance(self.code, int) else 1
+
+    def test_a_manifest_that_differs_exits_3(self):
+        am.probe = lambda *args: (set(), None)
+        self.assertEqual(self.status(), 3)
+
+    def test_a_failed_observing_build_is_another_failure(self):
+        am.probe = lambda *args: (None, "")
+        self.assertEqual(self.status(), 1)
+        self.assertIn("the observing build failed", self.code)
+
+    def test_a_missing_manifest_is_another_failure(self):
+        os.unlink(self.path)
+        self.assertEqual(self.status(), 1)
+        self.assertIn("nothing to check", self.code)
 
 
 class Write(unittest.TestCase):

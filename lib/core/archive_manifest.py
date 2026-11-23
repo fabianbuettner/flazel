@@ -47,6 +47,10 @@ LOCKFILE = "--lockfile_mode=error"
 # option or target pattern.
 GROUP_SEPARATOR = "--and"
 
+# --check's exit status for a manifest that differs from the derived one, and
+# no other outcome's. update-locks.nix reads this line.
+DIFFERS = 3
+
 # While a probe exists, a signal is recorded instead of raised (see
 # on_signal), so that nothing can interrupt the probe's cleanup.
 deferred = {"active": False, "signum": None, "child": None}
@@ -500,7 +504,7 @@ def check(manifest, path):
     if any("urls" not in e for e in loaded):
         print(f"{path} has entries without urls; regenerate it",
               file=sys.stderr)
-        return 1
+        return DIFFERS
     committed = as_set(loaded)
     derived = as_set(manifest)
     for urls, _, _ in sorted(derived - committed):
@@ -509,7 +513,7 @@ def check(manifest, path):
         print(f"extra: {' '.join(urls)}", file=sys.stderr)
     if derived != committed:
         print(f"{path} is stale; regenerate it", file=sys.stderr)
-        return 1
+        return DIFFERS
     print(f"{path} is current ({len(derived)} archives)", file=sys.stderr)
     return 0
 
@@ -569,8 +573,9 @@ def parse_args(argv):
         action="store_true",
         help="derive the manifest and compare it with PATH as a set of "
         "(urls, sha256, canonical_id), printing each missing and extra "
-        "one; exit 1 on any difference or a missing PATH. Never writes "
-        "PATH.",
+        f"one; exit {DIFFERS} on any difference. Any other failure, a "
+        "missing PATH among them, exits with another non-zero status. Never "
+        "writes PATH.",
     )
     parser.add_argument(
         "--output",

@@ -221,6 +221,75 @@
                 inherit bazel;
               } == bazel;
             pkgs.runCommand "flazel-bazel-with-usr-bin-env-darwin-test" { } "touch $out";
+
+          # How update-locks stops a command that starts with TERM ignored.
+          update-locks-stop-marker =
+            let
+              inherit (import ./lib/core/stop-marker.nix { inherit pkgs; }) forwardTerm nsInit;
+            in
+            pkgs.runCommand "flazel-update-locks-stop-marker-test"
+              {
+                nativeBuildInputs = [ pkgs.util-linux ];
+                inherit forwardTerm nsInit;
+                coreutilsEnv = "${pkgs.coreutils}/bin/env";
+              }
+              ''
+                bash ${./lib/core/stop-marker-test.sh}
+                touch $out
+              '';
+
+          # Variants need bubblewrap, so on darwin an app with Bazel-version
+          # shells is the refusal, with the status of a namespace that cannot
+          # be made, and one without them is not. Bubblewrap is allowed to
+          # evaluate there, so only the app keeps it out. Pure evaluation
+          # cannot read a derivation, so the build reads each.
+          update-locks-darwin =
+            let
+              app =
+                shells:
+                coreLib.mkUpdateLocksApp {
+                  pkgs = import nixpkgs {
+                    system = "aarch64-darwin";
+                    config.allowUnsupportedSystem = true;
+                  };
+                  inherit shells;
+                  probes = [ [ "//..." ] ];
+                };
+              # The derivation a program's string refers to.
+              drvOf =
+                program:
+                let
+                  drvs = builtins.attrNames (builtins.getContext program);
+                  drv = builtins.head drvs;
+                in
+                assert builtins.length drvs == 1;
+                builtins.appendContext drv { ${drv}.path = true; };
+            in
+            pkgs.runCommand "flazel-update-locks-darwin-test"
+              {
+                withShells = drvOf (app [ "bazel8" ]).program;
+                withoutShells = drvOf (app [ ]).program;
+              }
+              ''
+                refusal="Bazel-version shells need Linux"
+                grep -qF "$refusal" "$withShells" || {
+                  echo "FAIL: an app with shells is not the refusal" >&2
+                  exit 1
+                }
+                grep -qF "exit 6" "$withShells" || {
+                  echo "FAIL: the refusal does not exit 6" >&2
+                  exit 1
+                }
+                if grep -qF -- -bubblewrap- "$withShells"; then
+                  echo "FAIL: an app with shells needs bubblewrap" >&2
+                  exit 1
+                fi
+                if grep -qF "$refusal" "$withoutShells"; then
+                  echo "FAIL: an app without shells refuses" >&2
+                  exit 1
+                fi
+                touch $out
+              '';
         };
 
         # The gate. Every test project under tests/ is a flake of its own,
