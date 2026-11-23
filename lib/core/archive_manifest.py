@@ -514,6 +514,31 @@ def check(manifest, path):
     return 0
 
 
+def write(manifest, path):
+    """Replaces the file at path, or a symlink's target, with manifest
+    whole, keeping its mode: a reader, or a run cut short, sees the old file
+    or the new one."""
+    path = os.path.realpath(path)
+    try:
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(path), prefix=os.path.basename(path) + "."
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(manifest, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
 def build_arg_groups(args):
     """The observing builds' Bazel arguments, split at each GROUP_SEPARATOR;
     Bazel's own `--` before negative target patterns stays in its group."""
@@ -571,9 +596,7 @@ def main():
     manifest = derive(opts.build_arg_groups)
     if opts.check:
         sys.exit(check(manifest, out))
-    with open(out, "w") as f:
-        json.dump(manifest, f, indent=2)
-        f.write("\n")
+    write(manifest, out)
     print(f"wrote {out} ({len(manifest)} archives)", file=sys.stderr)
 
 

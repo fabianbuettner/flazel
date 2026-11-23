@@ -14,6 +14,7 @@ registry modules REGISTRY_KEYS from tests/fetched-modules, scrubbed alike.
 """
 import importlib.util
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -295,6 +296,53 @@ class Check(unittest.TestCase):
         derived = entries(RULES_CC)
         self.committed(list(reversed(derived)))
         self.assertEqual(am.check(derived, self.path), 0)
+
+
+class Write(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.path = os.path.join(self.dir, "flazel-archives.json")
+        with open(self.path, "w") as f:
+            f.write("old\n")
+        os.chmod(self.path, 0o640)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def test_the_file_is_replaced_and_nothing_else_is_left(self):
+        am.write(entries({SHA: URL}), self.path)
+        with open(self.path) as f:
+            self.assertEqual(am.json.load(f), entries({SHA: URL}))
+        self.assertEqual(os.listdir(self.dir), ["flazel-archives.json"])
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o640)
+
+    def test_a_new_file_honours_the_umask(self):
+        os.unlink(self.path)
+        umask = os.umask(0o027)
+        try:
+            am.write(entries({SHA: URL}), self.path)
+        finally:
+            os.umask(umask)
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o640)
+
+    def test_a_symlink_keeps_pointing_at_the_replaced_target(self):
+        target = os.path.join(self.dir, "elsewhere", "manifest.json")
+        os.mkdir(os.path.dirname(target))
+        os.rename(self.path, target)
+        os.symlink(target, self.path)
+        am.write(entries({SHA: URL}), self.path)
+        self.assertTrue(os.path.islink(self.path))
+        with open(target) as f:
+            self.assertEqual(am.json.load(f), entries({SHA: URL}))
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o640)
+        self.assertEqual(os.listdir(os.path.dirname(target)), ["manifest.json"])
+
+    def test_a_failed_write_leaves_the_old_file(self):
+        with self.assertRaises(TypeError):
+            am.write([{"urls": [object()]}], self.path)
+        with open(self.path) as f:
+            self.assertEqual(f.read(), "old\n")
+        self.assertEqual(os.listdir(self.dir), ["flazel-archives.json"])
 
 
 class BuildArgGroups(unittest.TestCase):

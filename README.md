@@ -406,6 +406,17 @@ apps.update-locks = flazel.lib.mkUpdateLocksApp {
 Bazel and writes `locks/<version>.lock` with each version's. After refreshing
 each lock it writes that lock's manifest, `flazel-archives.json` and
 `locks/<version>.archives.json`, observing one build per entry of `probes`.
+A project with a single Bazel passes `shells = [ ]` and gets no `locks/`.
+
+`nix run .#update-locks -- --check` changes no lock or manifest. It checks
+`MODULE.bazel.lock` with `bazel mod deps --lockfile_mode=error` and, if the
+lock is current, `flazel-archives.json` with `flazel-lock-archives --check`,
+using the same `probes`. It names each file that is missing or fails the
+check, and exits 1, so a CI step catches either going stale. An interrupt
+stops it with 130 or 143, a dev shell that cannot be entered with that
+failure's status. If the app itself is killed, the check ends with it, except
+on darwin, where it runs to its end. `--check` does not support Bazel-version shells yet: with
+`shells != [ ]` it exits 2.
 
 ## How it works
 
