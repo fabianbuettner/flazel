@@ -740,6 +740,10 @@ declarations C libraries expect, like `setenv` or mingw-w64's `M_PI`, under
 under an ISO dialect GCC keeps its semantics, such as its floating-point rules,
 that a GNU dialect would change.
 
+`cxx_flags` defines `_GNU_SOURCE` for C++ on Windows targets, as Linux g++
+predefines it and mingw-w64's does not, so declarations like `M_PI` are visible
+on both.
+
 ### Opt-in
 
 | Feature | Flags | Notes |

@@ -1029,6 +1029,73 @@
           '';
         };
 
+        # Windows targets' C++ compiles and C++ header parses get -D_GNU_SOURCE,
+        # as Linux g++ predefines it; their C compiles and every Linux compile do
+        # not. The control: without it, mingw-w64 hides M_PI from //m_pi:m_pi.
+        # windows: whether every toolchain targets Windows.
+        mkGnuSourceCheck =
+          {
+            name,
+            toolchains,
+            windows,
+          }:
+          let
+            cxx = if windows then "with" else "without";
+          in
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains = toolchains;
+            script = ''
+              parse=(--features=parse_headers --process_headers_in_dependencies)
+              # Each CppCompile of $2, built for platform $1's toolchain, as one line.
+              compiles() {
+                bazel aquery "--platforms=@local_config_cc_$1//:platform" "''${parse[@]}" "mnemonic(\"CppCompile\", $2)" --output=jsonproto \
+                  | jq -r '(.actions // [])[].arguments | join(" ")'
+              }
+              # $1: with or without -D_GNU_SOURCE, on every CppCompile of $3 under $2.
+              expect() {
+                local want=$1 argv
+                argv=$(compiles "$2" "$3")
+                [ -n "$argv" ] || { fail "$2: no CppCompile of $3"; return; }
+                echo "$2 $3: $(grep -c -- ' -D_GNU_SOURCE ' <<<"$argv" || true) of $(wc -l <<<"$argv") compiles pass -D_GNU_SOURCE"
+                if [ "$want" = with ]; then
+                  if grep -v -q -- ' -D_GNU_SOURCE ' <<<"$argv"; then fail "$2: a compile of $3 lacks -D_GNU_SOURCE"; fi
+                elif grep -q -- '_GNU_SOURCE' <<<"$argv"; then
+                  fail "$2: a compile of $3 passes _GNU_SOURCE"
+                fi
+              }
+              for tc in ${pkgs.lib.concatStringsSep " " (builtins.attrNames toolchains)}; do
+                expect ${cxx} $tc //m_pi:m_pi
+                expect ${cxx} $tc //clang_check:self_contained
+                expect without $tc //excess_precision:excess_precision
+                expect without $tc //clang_check:c_header
+              done
+              ${pkgs.lib.optionalString windows ''
+                if bazel build --platforms=@local_config_cc_default//:platform --cxxopt=-U_GNU_SOURCE //m_pi:m_pi 2>$TMPDIR/build.err; then
+                  fail "built //m_pi:m_pi with -U_GNU_SOURCE"
+                fi
+                grep -m2 'error:' $TMPDIR/build.err || true
+                grep -q "M_PI.*was not declared in this scope" $TMPDIR/build.err || fail "-U_GNU_SOURCE did not hide M_PI"
+              ''}
+            '';
+          };
+        gnuSource = mkGnuSourceCheck {
+          name = "gnu-source";
+          toolchains = selectionToolchains;
+          windows = false;
+        };
+        gnuSourceMingw64 = mkGnuSourceCheck {
+          name = "gnu-source-mingw64";
+          toolchains.default = mingw64Cfg;
+          windows = true;
+        };
+        gnuSourceMingw32 = mkGnuSourceCheck {
+          name = "gnu-source-mingw32";
+          toolchains.default = mingw32Cfg;
+          windows = true;
+        };
+
         # layering_check and parse_headers under clang, and parse_headers under
         # GCC, asserted from the actions aquery lists and from builds that must
         # fail.
@@ -1513,6 +1580,22 @@
           strict-ansi-mingw64 = strictAnsiMingw64;
           strict-ansi-mingw32 = strictAnsiMingw32;
           excess-precision-mingw32 = excessPrecisionMingw32;
+          # M_PI and the identifiers unix, linux and WIN32 in C++ on mingw-w64;
+          # gnu-source-mingw64 holds the control.
+          m-pi-mingw64 = mkCcCheck {
+            name = "flazel-cc-m-pi-mingw64";
+            cfg = mingw64Cfg;
+            pkg = "m_pi";
+            bin = "m_pi";
+            expect = "flazel m_pi ok";
+            runTest = false;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
+          gnu-source = gnuSource;
+          gnu-source-mingw64 = gnuSourceMingw64;
+          gnu-source-mingw32 = gnuSourceMingw32;
         };
 
         # nix develop .#bazel8 (or another of otherVariants) runs that Bazel.

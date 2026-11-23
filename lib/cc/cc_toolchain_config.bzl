@@ -333,7 +333,8 @@ def _impl(ctx):
         feature(
             name = "cxx_flags",
             enabled = True,
-            flag_sets = _cxx_flag_sets(["-std=" + ctx.attr.cxx_standard]),
+            # Linux g++ predefines _GNU_SOURCE for C++, mingw-w64's does not.
+            flag_sets = _cxx_flag_sets(["-std=" + ctx.attr.cxx_standard] + (["-D_GNU_SOURCE"] if targets_windows else [])),
         ),
         feature(
             name = "c_flags",
