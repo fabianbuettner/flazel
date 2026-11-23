@@ -32,6 +32,12 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
 ### Shared
 
 - **Offline builds**: the archives the probed builds fetch (BCR modules, extension repos, vendored crates) pre-fetched into the Nix store. Once `flazel-lock-archives` has recorded them, those builds run without network; anything it did not observe is fetched online.
+- **`/usr/bin/env` in the Nix build**: actions may run scripts that start `#!/usr/bin/env bash` (bazel_skylib's `diff_test`, for one). Every flazel derivation runs Bazel through `flazel.lib.bazelWithUsrBinEnv { pkgs, bazel }`, which on a Linux build machine:
+  - runs plain Bazel where `/usr/bin/env` exists (Nix sandbox off, an ordinary distribution);
+  - where `/usr` is absent, as in the Nix build sandbox, runs Bazel under bubblewrap in a root that adds Nix coreutils' `env` at `/usr/bin/env`. That needs a user namespace, as Bazel's `linux-sandbox` does. Where bwrap cannot set it up the build fails with bwrap's message naming the cause, and where the namespace cannot be created at all (`max_user_namespaces` exhausted, a container without `CAP_SYS_ADMIN`) flazel adds a note saying why bwrap ran;
+  - refuses a `/usr` without `env` (unsupported): adding `env` would write into a filesystem flazel does not own.
+
+  On other build platforms it is Bazel unchanged, and dev shells use plain Bazel, relying on the host's `/usr/bin/env`. `env` finds `bash` on the action `PATH` that nixpkgs' Bazel sets to store paths, so a build that forces `--action_env=PATH=/bin:/usr/bin` gets `env: 'bash': No such file or directory`.
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
 - **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. The archives a build fetches live in a committed `flazel-archives.json`, written by `flazel-lock-archives` (see [The archives a build fetches](#the-archives-a-build-fetches)).
 

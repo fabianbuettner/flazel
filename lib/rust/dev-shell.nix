@@ -90,9 +90,6 @@ let
         }\n"
       ) toolchains.${name}.targets
     ) toolchainNames
-    # Match the derivation: bootstrap process_wrapper via the hermetic sh_toolchain
-    # rather than #!/usr/bin/env bash, so builds work without /usr/bin/env.
-    + "build --@rules_rust//rust/settings:experimental_use_sh_toolchain_for_bootstrap_process_wrapper=True\n"
     # crates_vendor honors this action env over its in-bazel-built generator,
     # so the (patched) Nix cargo-bazel serves the vendor path too; the URL
     # export in rustDepsSetup covers the from_cargo extension path.

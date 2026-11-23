@@ -38,8 +38,9 @@
 
         # Builds two genrules driven by a Nix devshell tool (tr, exposed as
         # @upcase) through both nix_tool target shapes, then asserts their
-        # output. Uses the generic mkFlazelDerivation: no language toolchain
-        # is needed, just the host tool.
+        # output, and tests a script that starts #!/usr/bin/env bash. Uses the
+        # generic mkFlazelDerivation: no language toolchain is needed, just the
+        # host tool.
         mkToolCheck =
           variant:
           flazel.lib.mkFlazelDerivation {
@@ -52,7 +53,7 @@
             # sed (standalone binary) must be on PATH for nix_tool's `which` to
             # resolve it inside the sandbox.
             nativeBuildInputs = [ pkgs.gnused ];
-            bazelCommand = "build //:via_symlink //:via_bin //:multicall_symlink //:multicall_bin";
+            bazelCommand = "test --test_output=errors //:via_symlink //:via_bin //:multicall_symlink //:multicall_bin //:usr_bin_env_test";
             installPhase = ''
               # Standalone tool (sed): s/ok/OK/. Multicall tool (coreutils tr):
               # a-z A-Z uppercases the whole line, which only works if argv[0] is

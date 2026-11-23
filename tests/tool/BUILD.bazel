@@ -1,6 +1,8 @@
 # nix_tool integration test. A standalone tool (sed, as @upcase) and a multicall
 # tool (coreutils tr, as @upper) are each driven through both target shapes.
 
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+
 # Raw symlink: $(location @upcase) -> the resolved Nix store binary. This is the
 # genrule shorthand downstream projects use (e.g. $(location @magick-bin)).
 genrule(
@@ -38,4 +40,12 @@ genrule(
     outs = ["multicall_bin.txt"],
     cmd = "$(location @upper//:bin) a-z A-Z < $< > $@",
     tools = ["@upper//:bin"],
+)
+
+# diff_test's generated script starts with #!/usr/bin/env bash, which every
+# action of the Nix build must be able to run.
+diff_test(
+    name = "usr_bin_env_test",
+    file1 = ":via_symlink",
+    file2 = ":via_bin",
 )

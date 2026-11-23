@@ -2,6 +2,7 @@ module(
     name = "flazel-tool-test",
 )
 
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "flazel")
 local_path_override(
     module_name = "flazel",

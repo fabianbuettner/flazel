@@ -68,6 +68,9 @@
         bazelVariants = import ./lib/core/bazel-variants.nix;
         mkUpdateLocksApp = import ./lib/core/update-locks.nix;
 
+        # Bazel whose actions find /usr/bin/env in a Nix build sandbox
+        bazelWithUsrBinEnv = import ./lib/core/bazel-with-usr-bin-env.nix;
+
         # Generic derivation builders (auto-inject the flazel module override)
         mkFlazelDerivation = withFlazelModule coreDeriv.mkFlazelDerivation;
         mkFlazelDepsSetup = withFlazelModule coreDeriv.mkFlazelDepsSetup;
@@ -176,6 +179,48 @@
               ${./lib/core/archive_manifest.py} ${./lib/core/testdata}
             touch $out
           '';
+
+          # Each branch of bazelWithUsrBinEnv, around a fake Bazel.
+          bazel-with-usr-bin-env =
+            let
+              fakeBazel = pkgs.writeShellScriptBin "bazel" ''
+                if [ -n "''${FAKE_PIDFILE:-}" ]; then
+                  echo $$ > "$FAKE_PIDFILE"
+                  exec sleep 1000
+                fi
+                echo "ns=$(readlink /proc/self/ns/user) env=$(/usr/bin/env echo ok) args=$*"
+                exit "''${FAKE_RC:-0}"
+              '';
+            in
+            pkgs.runCommand "flazel-bazel-with-usr-bin-env-test"
+              {
+                nativeBuildInputs = [ pkgs.util-linux ];
+                wrapper = "${
+                  coreLib.bazelWithUsrBinEnv {
+                    inherit pkgs;
+                    bazel = fakeBazel;
+                  }
+                }/bin/bazel";
+                coreutilsEnv = "${pkgs.coreutils}/bin/env";
+                bwrap = "${pkgs.bubblewrap}/bin/bwrap";
+              }
+              ''
+                bash ${./lib/core/bazel-with-usr-bin-env-test.sh}
+                touch $out
+              '';
+
+          # bubblewrap is Linux-only, and other build platforms keep Bazel as is.
+          bazel-with-usr-bin-env-darwin =
+            let
+              darwinPkgs = import nixpkgs { system = "aarch64-darwin"; };
+              bazel = darwinPkgs.writeShellScriptBin "bazel" "";
+            in
+            assert
+              coreLib.bazelWithUsrBinEnv {
+                pkgs = darwinPkgs;
+                inherit bazel;
+              } == bazel;
+            pkgs.runCommand "flazel-bazel-with-usr-bin-env-darwin-test" { } "touch $out";
         };
 
         # The gate. Every test project under tests/ is a flake of its own,

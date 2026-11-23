@@ -347,7 +347,10 @@
             name = "flazel-cc-${name}${variant.suffix}";
             src = ./.;
             nativeBuildInputs = [
-              variant.bazel
+              (flazel.lib.bazelWithUsrBinEnv {
+                inherit pkgs;
+                inherit (variant) bazel;
+              })
               pkgs.jq
             ];
             buildPhase = ''
@@ -366,7 +369,6 @@
                 // shell
               )).shellHook
               }
-              patchShebangs --build "$(bazel info install_base)/embedded_tools" >/dev/null
               failed=0
               fail() {
                 echo "FAIL: $*" >&2

@@ -16,6 +16,7 @@
 #
 let
   inherit (import ./constants.nix) nixDepsDir;
+  bazelWithUsrBinEnv = import ./bazel-with-usr-bin-env.nix;
 in
 rec {
   # Generate .bazelrc.nix lines for module overrides and non-BCR deps
@@ -233,7 +234,7 @@ rec {
         ;
 
       nativeBuildInputs = [
-        bazel
+        (bazelWithUsrBinEnv { inherit pkgs bazel; })
         pkgs.coreutils
       ]
       ++ nativeBuildInputs;
@@ -257,10 +258,6 @@ rec {
           # Every Bazel call of the build, also from tools, keeps this root.
           startupOptions = [ "--output_user_root=$TMPDIR/bazel" ];
         }}
-        # nixpkgs' Bazel 8 and 9 keep "#!/usr/bin/env bash" in their embedded
-        # tools (test-setup.sh, generate-xml.sh), which this sandbox cannot run.
-        # patchShebangs keeps the mtimes Bazel checks its install base by.
-        patchShebangs --build "$(bazel info install_base)/embedded_tools" >/dev/null
         bazel ${bazelCommand}
       '';
     };
