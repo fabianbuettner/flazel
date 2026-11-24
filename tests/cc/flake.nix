@@ -1096,6 +1096,46 @@
           windows = true;
         };
 
+        # C compiles and C header parses get none of warnings_pedantic's C++-only
+        # flags, which GCC's cc1 rejects for C; C++ ones get all of them.
+        pedanticWarnings = mkShellCheck {
+          name = "pedantic-warnings";
+          variant = variants.default;
+          shell.toolchains = selectionToolchains;
+          script = ''
+            parse=(--features=parse_headers --process_headers_in_dependencies)
+            warn=(--features=warnings --features=warnings_pedantic --features=treat_warnings_as_errors)
+            cxx_only=(-Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual)
+            # $1: with or without every C++-only flag, on every CppCompile of $3 under $2.
+            expect() {
+              local want=$1 argv f
+              argv=$(bazel aquery "--platforms=@local_config_cc_$2//:platform" "''${parse[@]}" "''${warn[@]}" \
+                "mnemonic(\"CppCompile\", $3)" --output=jsonproto | jq -r '(.actions // [])[].arguments | join(" ")')
+              [ -n "$argv" ] || { fail "$2: no CppCompile of $3"; return; }
+              for f in "''${cxx_only[@]}"; do
+                echo "$2 $3: $(grep -c -- " $f " <<<"$argv" || true) of $(wc -l <<<"$argv") compiles pass $f"
+                if [ "$want" = with ]; then
+                  if grep -v -q -- " $f " <<<"$argv"; then fail "$2: a compile of $3 lacks $f"; fi
+                elif grep -q -- " $f" <<<"$argv"; then
+                  fail "$2: a compile of $3 passes $f"
+                fi
+              done
+            }
+            for tc in ${pkgs.lib.concatStringsSep " " allSelection}; do
+              bazel build "--platforms=@local_config_cc_$tc//:platform" "''${parse[@]}" "''${warn[@]}" \
+                //warnings:c //warnings:cxx //clang_check:c_header //clang_check:self_contained 2>$TMPDIR/build.err \
+                || fail "$tc: could not build under every warning feature and -Werror"
+              if grep -e 'valid for C++' -e 'not for C' $TMPDIR/build.err; then
+                fail "$tc: a C compile got a C++-only flag"
+              fi
+              expect without $tc //warnings:c
+              expect without $tc //clang_check:c_header
+              expect with $tc //warnings:cxx
+              expect with $tc //clang_check:self_contained
+            done
+          '';
+        };
+
         # layering_check and parse_headers under clang, and parse_headers under
         # GCC, asserted from the actions aquery lists and from builds that must
         # fail.
@@ -1596,6 +1636,7 @@
           gnu-source = gnuSource;
           gnu-source-mingw64 = gnuSourceMingw64;
           gnu-source-mingw32 = gnuSourceMingw32;
+          pedantic-warnings = pedanticWarnings;
         };
 
         # nix develop .#bazel8 (or another of otherVariants) runs that Bazel.

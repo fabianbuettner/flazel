@@ -1,0 +1,13 @@
+# C and C++ that build clean under every warning feature (flake.nix:
+# pedantic-warnings).
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "c",
+    srcs = ["to_int.c"],
+)
+
+cc_library(
+    name = "cxx",
+    srcs = ["to_int.cc"],
+)

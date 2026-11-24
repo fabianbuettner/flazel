@@ -805,7 +805,7 @@ on both.
 |---|---|---|
 | `gdb_index` | `-Wl,--gdb-index` | needs gold, lld, or mold |
 | `warnings` | `-Wall -Wextra` | |
-| `warnings_pedantic` | adds `-Wpedantic -Wconversion` | |
+| `warnings_pedantic` | adds `-Wpedantic -Wconversion` and more | full list in `lib/cc/cc_toolchain_config.bzl`; C gets only the ones C has |
 | `treat_warnings_as_errors` | `-Werror` | |
 | `asan` | `-fsanitize=address -fno-omit-frame-pointer` | `provides=["sanitizer"]` |
 | `ubsan` | `-fsanitize=undefined` | layers with asan or tsan |
