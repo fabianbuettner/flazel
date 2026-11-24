@@ -799,6 +799,24 @@
               ''
           );
 
+        # A GCC older than 13, whose libstdc++ has no libstdc++exp: an evaluation error.
+        gccFloor =
+          let
+            accepts =
+              gcc: (builtins.tryEval (flazel.lib.cc.mkConfig { inherit pkgs gcc; }).bazelNixDeps.drvPath).success;
+            refused = !accepts (pkgs.gcc13 // { version = "12.5.0"; });
+            accepted = accepts pkgs.gcc13;
+          in
+          pkgs.runCommand "flazel-cc-gcc-floor" { } (
+            if refused && accepted then
+              "touch $out"
+            else
+              ''
+                echo "FAIL: GCC 12 refused=${pkgs.lib.boolToString refused}, GCC 13 accepted=${pkgs.lib.boolToString accepted}" >&2
+                exit 1
+              ''
+          );
+
         # Each package's include path as the repository rule wrote it, and the two modules
         # it must refuse, each naming the module.
         pkgconfigRule = mkShellCheck {
@@ -1154,6 +1172,138 @@
           toolchains.default = mingw32Cfg;
           expected.default = "mingw-gcc windows_mingw";
         };
+        # A hosted Linux cross toolchain, run under qemu-user.
+        aarch64 = pkgs.pkgsCross.aarch64-multiplatform;
+        aarch64Cfg = flazel.lib.cc.mkConfig {
+          inherit pkgs;
+          gcc = aarch64.buildPackages.gcc;
+          target = {
+            triple = aarch64.stdenv.hostPlatform.config;
+            libc = aarch64.stdenv.cc.libc;
+            libcName = "glibc";
+            binutils = aarch64.buildPackages.binutils;
+          };
+        };
+
+        # The libstdc++ toolchains: a stacktrace-<family> and a stdcxxexp-<family>
+        # check each. runner runs a cross toolchain's executables, also on hosts
+        # without binfmt, where nothing else would. What a Windows
+        # trace holds: README.md, Windows.
+        stdcxxexpFamilies = {
+          gcc = {
+            cfg = gccCfg;
+            windows = false;
+            runner = "";
+          };
+          clang = {
+            cfg = clangCfg;
+            windows = false;
+            runner = "";
+          };
+          musl = {
+            cfg = staticCfg;
+            windows = false;
+            runner = "";
+          };
+          aarch64 = {
+            cfg = aarch64Cfg;
+            windows = false;
+            runner = "${pkgs.qemu-user}/bin/qemu-aarch64";
+          };
+          mingw64 = {
+            cfg = mingw64Cfg;
+            windows = true;
+            runner = "${wineRunner}";
+          };
+          mingw32 = {
+            cfg = mingw32Cfg;
+            windows = true;
+            runner = "${wineRunner}";
+          };
+        };
+
+        # The control of stacktrace-<family> and println-mingw*: a link without
+        # -lstdc++exp leaves <stacktrace> (and <print>'s Windows console output)
+        # undefined, and gives a C program and a C++ one using neither the same binary.
+        mkStdcxxexpCheck =
+          { name, family }:
+          let
+            inherit (stdcxxexpFamilies.${family}) cfg windows;
+            exe = if windows then ".exe" else "";
+          in
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains.default = cfg;
+            script = ''
+              platform=--platforms=@local_config_cc_default//:platform
+              # Each C++ target with the symbol its link without -lstdc++exp leaves undefined.
+              needs=(//stacktrace:stacktrace 'std::__stacktrace_impl::_S_current'
+                //stacktrace:size 'std::__stacktrace_impl::_S_current'
+                ${pkgs.lib.optionalString windows "//println:println 'std::__open_terminal'"})
+              same=(//excess_precision:excess_precision //hello:hello)
+              targets=("''${same[@]}")
+              for ((i = 0; i < ''${#needs[@]}; i += 2)); do targets+=("''${needs[i]}"); done
+              bazel build $platform "''${targets[@]}" || fail "could not build ''${targets[*]}"
+              execroot=$(bazel info $platform execution_root)
+              # Repeats the link of $1 into $2 without the flag $3 (none if empty);
+              # its errors go to link.err. ld stamps PE files with SOURCE_DATE_EPOCH,
+              # else the time.
+              relink() {
+                local args=() arg prev= dropped=
+                while IFS= read -r arg; do
+                  if [ -n "$3" ] && [ "$arg" = "$3" ]; then
+                    dropped=1
+                  elif [ "$prev" = -o ]; then
+                    args+=("$2")
+                  else
+                    args+=("$arg")
+                  fi
+                  prev=$arg
+                done < <(bazel aquery $platform "mnemonic(\"CppLink\", $1)" --output=jsonproto \
+                  | jq -r '(.actions // [])[].arguments[]')
+                [ -z "$3" ] || [ -n "$dropped" ] || { fail "the link of $1 passes no $3"; exit 1; }
+                (cd "$execroot" && SOURCE_DATE_EPOCH=0 "''${args[@]}") 2>$TMPDIR/link.err
+              }
+              for ((i = 0; i < ''${#needs[@]}; i += 2)); do
+                t=''${needs[i]} sym=''${needs[i + 1]}
+                if relink $t $TMPDIR/needs${exe} -lstdc++exp; then
+                  fail "linked $t without -lstdc++exp"
+                fi
+                # bfd's and lld's wording.
+                grep -E -o 'undefined (reference to|symbol:) .*' $TMPDIR/link.err | sort -u || true
+                grep -q -F -e "undefined reference to \`$sym" -e "undefined symbol: $sym" $TMPDIR/link.err \
+                  || fail "$sym resolved without -lstdc++exp"
+              done
+              for t in "''${same[@]}"; do
+                relink $t $TMPDIR/with${exe} "" || { cat $TMPDIR/link.err; fail "could not relink $t"; }
+                relink $t $TMPDIR/without${exe} -lstdc++exp \
+                  || { cat $TMPDIR/link.err; fail "could not link $t without -lstdc++exp"; }
+                cmp $TMPDIR/with${exe} $TMPDIR/without${exe} \
+                  && echo "$t: same binary without -lstdc++exp" \
+                  || fail "-lstdc++exp changes the binary $t"
+              done
+            '';
+          };
+
+        stdcxxexpChecks = pkgs.lib.concatMapAttrs (family: f: {
+          # C++23 <stacktrace>.
+          "stacktrace-${family}" = mkCcCheck {
+            name = "flazel-cc-stacktrace-${family}";
+            inherit (f) cfg;
+            pkg = "stacktrace";
+            bin = "stacktrace";
+            expect = "flazel stacktrace ok";
+            runTest = false;
+            inherit (f) runner;
+            exe = if f.windows then ".exe" else "";
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+          };
+          "stdcxxexp-${family}" = mkStdcxxexpCheck {
+            name = "stdcxxexp-${family}";
+            inherit family;
+          };
+        }) stdcxxexpFamilies;
 
         # C compiles and C header parses get none of warnings_pedantic's C++-only
         # flags, which GCC's cc1 rejects for C; C++ ones get all of them.
@@ -1440,10 +1590,11 @@
             inherit variant;
           };
         }) otherVariants;
+        generatedChecks = versionedChecks // stdcxxexpChecks;
       in
       {
         # nix flake check builds all; nix build .#checks.<system>.clang runs one.
-        checks = versionedChecks // {
+        checks = generatedChecks // {
           gcc = mkCcCheck {
             name = "flazel-cc-gcc";
             cfg = gccCfg;
@@ -1606,6 +1757,7 @@
           no-toolchain = noToolchain;
           path-tools = pathTools;
           ambiguous-default = ambiguousDefault;
+          gcc-floor = gccFloor;
           undeclared-default = undeclaredDefault;
           # The derivation's one toolchain, not named "default", is the host.
           subset-derivation = mkCcCheck {
@@ -1699,6 +1851,29 @@
           compiler-id = compilerId;
           compiler-id-mingw64 = compilerIdMingw64;
           compiler-id-mingw32 = compilerIdMingw32;
+          # C++23 std::println on mingw-w64; stdcxxexp-mingw64 and -mingw32 hold the control.
+          println-mingw64 = mkCcCheck {
+            name = "flazel-cc-println-mingw64";
+            cfg = mingw64Cfg;
+            pkg = "println";
+            bin = "println";
+            expect = "flazel println ok";
+            runTest = false;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
+          println-mingw32 = mkCcCheck {
+            name = "flazel-cc-println-mingw32";
+            cfg = mingw32Cfg;
+            pkg = "println";
+            bin = "println";
+            expect = "flazel println ok";
+            runTest = false;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
         };
 
         # nix develop .#bazel8 (or another of otherVariants) runs that Bazel.

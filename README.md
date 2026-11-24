@@ -8,7 +8,7 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
 
 ### C/C++
 
-- **GCC or Clang**, any version nixpkgs has. Pick your linker: mold, lld, gold, bfd.
+- **GCC or Clang**: GCC 13 or later for hosted toolchains (Clang links its libstdc++ too) unless you set `target.linkFlags`, and any Clang nixpkgs has. Pick your linker: mold, lld, gold, bfd.
 - **Static** (musl), **dynamic** (glibc), or **bare metal** (no libc). Your choice, one parameter.
 - **Cross-compilation**: x86_64, aarch64, riscv32, riscv64, mips64, arm, and 32- and 64-bit Windows (mingw-w64). All in one shell.
 - **Nixpkgs libraries**: `nixpkgsLibs = { openssl = pkgs.openssl; }` in Nix, `@openssl//:openssl` in Bazel. Transitive deps handled.
@@ -550,6 +550,11 @@ The compiler identifies as `mingw-gcc`, as rules_cc names it, so a `select()`
 on `@rules_cc//cc/compiler:mingw-gcc` picks it and one on `:gcc` does not.
 BCR modules that select on `:gcc` alone (abseil's warning copts, highway) take
 their default branch on mingw.
+
+`std::stacktrace` links and runs on 32- and 64-bit, but under Wine a 64-bit
+trace names no frames: libstdc++'s libbacktrace, given no executable name, reads
+`/proc/self/exe`, which is Wine's ELF loader. nixpkgs' 32-bit mingw-w64 GCC uses
+SJLJ exceptions, whose unwinder walks no frames, so its traces are empty.
 
 For Rust cross-targets that lack a real CC toolchain (e.g., iOS from a Linux host), declare a stub so Bazel's toolchain resolution doesn't complain:
 

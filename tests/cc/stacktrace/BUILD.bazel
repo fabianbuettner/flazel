@@ -1,0 +1,14 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+cc_binary(
+    name = "stacktrace",
+    srcs = ["main.cc"],
+)
+
+# Without iostream, only libstdc++exp needs libstdc++'s __cxa_guard_*, so a
+# static bfd link resolves them only if libstdc++exp comes first (flake.nix:
+# stdcxxexp-*).
+cc_binary(
+    name = "size",
+    srcs = ["size.cc"],
+)

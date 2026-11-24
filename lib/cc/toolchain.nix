@@ -259,6 +259,13 @@ let
   # path as @DEPS@ (see cc_toolchain_config.bzl).
   depsRepoName = "local_config_cc_${toolchainName}_deps";
 
+  # libstdc++exp holds C++23/26 library parts that refer into libstdc++, so it comes first.
+  libstdcxxLinkFlags =
+    if pkgs.lib.versionOlder gccVersion "13" then
+      throw "flazel: ${effectiveGcc} is GCC ${gccVersion}; its libstdc++ has no libstdc++exp, which every hosted toolchain links. Use GCC 13 or later, or set target.linkFlags."
+    else
+      ''"-lstdc++exp", "-lstdc++",'';
+
   # Link flags - can be overridden via target.linkFlags
   # Clang on NixOS uses GCC's libstdc++ by default, so link flags reference gcc-lib
   defaultLinkFlags =
@@ -271,7 +278,7 @@ let
         "-L@DEPS@/gcc-lib/${targetTriple}/lib",
         "-L@DEPS@/libc/lib",
         ${if threads != null then ''"-L@DEPS@/threads/lib",'' else ""}
-        "-lstdc++",
+        ${libstdcxxLinkFlags}
         "-no-canonical-prefixes",
       ''
     else if isBaremetal then
@@ -290,7 +297,7 @@ let
         "-L@DEPS@/gcc-lib/lib",
         "-L@DEPS@/libc/lib",
         "-B@DEPS@/binutils/bin",
-        "-lstdc++",
+        ${libstdcxxLinkFlags}
         "-no-canonical-prefixes",
       ''
     else if isClang then
@@ -303,7 +310,7 @@ let
         "-Wl,-rpath,${libc}/lib",
         "-Wl,--dynamic-linker=${dynamicLinker}",
         "-B@DEPS@/binutils/bin",
-        "-lstdc++",
+        ${libstdcxxLinkFlags}
         "-lm",
         "-no-canonical-prefixes",
       ''
@@ -318,7 +325,7 @@ let
         "-Wl,-rpath,${libc}/lib",
         "-Wl,--dynamic-linker=${dynamicLinker}",
         "-B@DEPS@/binutils/bin",
-        "-lstdc++",
+        ${libstdcxxLinkFlags}
         "-lm",
         "-no-canonical-prefixes",
       '';
