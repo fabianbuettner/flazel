@@ -290,8 +290,8 @@ def _impl(ctx):
     targets_windows = ctx.attr.object_format == "pe"
     parse_headers_action_configs, parse_headers_features = _parse_headers(ctx)
 
-    # libc headers hide POSIX/GNU declarations under __STRICT_ANSI__; ISO semantics stay.
-    c_flags = ["-std=" + ctx.attr.c_standard, "-U__STRICT_ANSI__"]
+    # libc headers' GNU declarations via -U__STRICT_ANSI__, the GNU keywords an ISO dialect turns off via -fasm; ISO semantics stay.
+    c_flags = ["-std=" + ctx.attr.c_standard, "-U__STRICT_ANSI__", "-fasm"]
     features = _link_inputs_features() + [
         feature(
             # Headers of external repositories (every nixpkgs library) are system

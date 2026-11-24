@@ -934,8 +934,10 @@
         };
 
         # C compiles and C header parses, external repositories included, get
-        # the C standard and -U__STRICT_ANSI__; C++ ones do not. The control: with
-        # __STRICT_ANSI__, mingw-w64 hides M_PI from //strict_ansi:m_pi.
+        # the C standard, -U__STRICT_ANSI__ and -fasm; C++ ones do not. With them
+        # //strict_ansi:gnu_keywords builds, and -fno-asm, its control, breaks it.
+        # The other control: with __STRICT_ANSI__, mingw-w64 hides M_PI from
+        # //strict_ansi:m_pi.
         # platforms: toolchain names, compiled for by their platforms.
         # windows: whether every toolchain targets Windows.
         mkStrictAnsiCheck =
@@ -951,18 +953,18 @@
             shell.toolchains = toolchains;
             script = ''
               parse=(--features=parse_headers --process_headers_in_dependencies)
-              # $1: with or without -std=c17 then -U__STRICT_ANSI__, on every
+              # $1: with or without -std=c17 -U__STRICT_ANSI__ -fasm, on every
               # action of aquery expression $3 for toolchain $2.
               expect() {
                 local want=$1 argv
                 argv=$(bazel aquery "--platforms=@local_config_cc_$2//:platform" "''${parse[@]}" "$3" --output=jsonproto \
                   | jq -r '(.actions // [])[].arguments | join(" ")')
                 [ -n "$argv" ] || { fail "$2: no action of $3"; return; }
-                echo "$2 $3: $(grep -c -- ' -U__STRICT_ANSI__ ' <<<"$argv" || true) of $(wc -l <<<"$argv") compiles pass -U__STRICT_ANSI__"
+                echo "$2 $3: $(grep -c -- ' -U__STRICT_ANSI__ -fasm ' <<<"$argv" || true) of $(wc -l <<<"$argv") compiles pass -U__STRICT_ANSI__ -fasm"
                 if [ "$want" = with ]; then
-                  if grep -v -q -- ' -std=c17 .*-U__STRICT_ANSI__ ' <<<"$argv"; then fail "$2: a compile of $3 lacks -std=c17 then -U__STRICT_ANSI__"; fi
-                elif grep -q -- '__STRICT_ANSI__' <<<"$argv"; then
-                  fail "$2: a compile of $3 passes __STRICT_ANSI__"
+                  if grep -v -q -- ' -std=c17 -U__STRICT_ANSI__ -fasm ' <<<"$argv"; then fail "$2: a compile of $3 lacks -std=c17 -U__STRICT_ANSI__ -fasm"; fi
+                elif grep -q -e '__STRICT_ANSI__' -e ' -fasm ' <<<"$argv"; then
+                  fail "$2: a compile of $3 passes __STRICT_ANSI__ or -fasm"
                 fi
               }
               compiles() { echo "mnemonic(\"CppCompile\", $1)"; }
@@ -976,6 +978,15 @@
                 expect without $tc "$(compiles //clang_check:base)"
                 expect without $tc "$posix_h"
                 expect without $tc "$(compiles //clang_check:self_contained)"
+                bazel build "--platforms=@local_config_cc_$tc//:platform" //strict_ansi:gnu_keywords \
+                  || fail "$tc: could not build //strict_ansi:gnu_keywords"
+                if bazel build "--platforms=@local_config_cc_$tc//:platform" --conlyopt=-fno-asm //strict_ansi:gnu_keywords 2>$TMPDIR/build.err; then
+                  fail "$tc: built //strict_ansi:gnu_keywords with -fno-asm"
+                fi
+                grep -m2 'error:' $TMPDIR/build.err || true
+                grep -q "function [^ ]*typeof[^a-z_ ]" $TMPDIR/build.err || fail "$tc: -fno-asm did not turn typeof off"
+                grep -q "[^a-z_]asm[^a-z_ ]* undeclared\|undeclared identifier [^ ]*asm[^a-z_ ]" $TMPDIR/build.err \
+                  || fail "$tc: -fno-asm did not turn asm off"
               done
               ${pkgs.lib.optionalString windows ''
                 if bazel build --platforms=@local_config_cc_default//:platform --conlyopt=-D__STRICT_ANSI__ //strict_ansi:m_pi 2>$TMPDIR/build.err; then

@@ -1,5 +1,5 @@
-# C without __STRICT_ANSI__ (flake.nix: feature-macros, m-pi-c-mingw64,
-# strict-ansi).
+# C without __STRICT_ANSI__ and with GNU keywords (flake.nix: feature-macros,
+# m-pi-c-mingw64, strict-ansi).
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 
 cc_binary(
@@ -18,4 +18,12 @@ cc_library(
     srcs = ["default_source.c"],
     copts = ["-Werror"],
     target_compatible_with = ["@platforms//os:linux"],
+)
+
+# -Werror: every compiler takes -fasm without an unused-argument warning.
+cc_library(
+    name = "gnu_keywords",
+    srcs = ["gnu_keywords.c"],
+    copts = ["-Werror"],
+    features = ["warnings"],
 )
