@@ -1,0 +1,25 @@
+load(":compiler_flags.bzl", "compiler_flags")
+
+compiler_flags(
+    name = "flags",
+    flags = [
+        "@rules_cc//cc/compiler",
+        "@bazel_tools//tools/cpp:compiler",
+    ],
+)
+
+# As BCR openssl's windows_mingw selects the GNU Windows system libraries.
+config_setting(
+    name = "windows_mingw",
+    constraint_values = ["@platforms//os:windows"],
+    flag_values = {"@rules_cc//cc/compiler": "mingw-gcc"},
+)
+
+genrule(
+    name = "branch",
+    outs = ["branch.txt"],
+    cmd = select({
+        ":windows_mingw": "echo windows_mingw > $@",
+        "//conditions:default": "echo default > $@",
+    }),
+)

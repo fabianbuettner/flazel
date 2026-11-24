@@ -546,6 +546,11 @@ bazel build //... --platforms=@local_config_cc_windows//:platform
 Executables get `.exe`, a `cc_shared_library` becomes a `.dll`. They run under
 Wine (`tests/cc` runs its Windows check that way, headless).
 
+The compiler identifies as `mingw-gcc`, as rules_cc names it, so a `select()`
+on `@rules_cc//cc/compiler:mingw-gcc` picks it and one on `:gcc` does not.
+BCR modules that select on `:gcc` alone (abseil's warning copts, highway) take
+their default branch on mingw.
+
 For Rust cross-targets that lack a real CC toolchain (e.g., iOS from a Linux host), declare a stub so Bazel's toolchain resolution doesn't complain:
 
 ```starlark

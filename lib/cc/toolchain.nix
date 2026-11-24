@@ -92,6 +92,8 @@ let
 
   # Compiler mode
   isClang = compiler == "clang";
+  # What Bazel's compiler flag reports, named as rules_cc's //cc/compiler does.
+  compilerIdentity = if isWindows && !isClang then "mingw-gcc" else compiler;
 
   # Check if this is a bare metal target (no libc)
   isBaremetal = target ? libc && target.libc == null;
@@ -586,7 +588,7 @@ let
         target_system_name = "${targetTriple}",
         target_cpu = "${targetCpu}",
         target_libc = "${libcName}",
-        compiler = "${compiler}",
+        compiler = "${compilerIdentity}",
         builtin_include_directories = [
     ${pkgs.lib.concatMapStrings (dir: "        \"${dir}\",\n") builtinIncludeDirs}    ],
         deps = "@${depsRepoName}//:all",

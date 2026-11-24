@@ -1096,6 +1096,54 @@
           windows = true;
         };
 
+        # Both compiler flags report the toolchain's compiler identity, and a
+        # config_setting on Windows and mingw-gcc (BCR openssl's windows_mingw)
+        # matches only where they say mingw-gcc.
+        # expected: toolchain name -> "<identity> <branch the select takes>".
+        mkCompilerIdCheck =
+          {
+            name,
+            toolchains,
+            expected,
+          }:
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains = toolchains;
+            script = ''
+              expect() {
+                local tc=$1 id=$2 branch=$3 flags got
+                bazel build "--platforms=@local_config_cc_$tc//:platform" //compiler_id:flags //compiler_id:branch \
+                  || { fail "$tc: could not build //compiler_id"; return; }
+                flags=$(cat bazel-bin/compiler_id/flags.txt)
+                got=$(cat bazel-bin/compiler_id/branch.txt)
+                echo "$tc: compiler flags $flags, branch $got"
+                [ "$flags" = "$id $id" ] || fail "$tc: compiler flags $flags, want $id $id"
+                [ "$got" = "$branch" ] || fail "$tc: branch $got, want $branch"
+              }
+              ${pkgs.lib.concatStrings (pkgs.lib.mapAttrsToList (tc: want: "expect ${tc} ${want}\n") expected)}
+            '';
+          };
+        compilerId = mkCompilerIdCheck {
+          name = "compiler-id";
+          toolchains = selectionToolchains;
+          expected = {
+            default = "gcc default";
+            clang = "clang default";
+            musl = "gcc default";
+          };
+        };
+        compilerIdMingw64 = mkCompilerIdCheck {
+          name = "compiler-id-mingw64";
+          toolchains.default = mingw64Cfg;
+          expected.default = "mingw-gcc windows_mingw";
+        };
+        compilerIdMingw32 = mkCompilerIdCheck {
+          name = "compiler-id-mingw32";
+          toolchains.default = mingw32Cfg;
+          expected.default = "mingw-gcc windows_mingw";
+        };
+
         # C compiles and C header parses get none of warnings_pedantic's C++-only
         # flags, which GCC's cc1 rejects for C; C++ ones get all of them.
         pedanticWarnings = mkShellCheck {
@@ -1637,6 +1685,9 @@
           gnu-source-mingw64 = gnuSourceMingw64;
           gnu-source-mingw32 = gnuSourceMingw32;
           pedantic-warnings = pedanticWarnings;
+          compiler-id = compilerId;
+          compiler-id-mingw64 = compilerIdMingw64;
+          compiler-id-mingw32 = compilerIdMingw32;
         };
 
         # nix develop .#bazel8 (or another of otherVariants) runs that Bazel.
