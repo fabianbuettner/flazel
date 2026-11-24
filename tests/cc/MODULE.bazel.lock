@@ -151,7 +151,7 @@
         "bzlTransitiveDigest": "2ghxfJsDX2QuFbODZco4sACKJJDAeTjNmml0rmbR28s=",
         "usagesDigest": "choDY/OKZ4QiGSnAeT8okYndjxHsnYtiAxe93Ys/bzs=",
         "recordedFileInputs": {
-          "@@//MODULE.bazel": "a497b97f0177945faf6d0f1e2fbad5f173ab4331b14e40b54034f3f1797a3bf8"
+          "@@//MODULE.bazel": "00eaf0bfc4200d151f749a7ecd0a2776d31d8df343bb84727489c62442e101f0"
         },
         "recordedDirentsInputs": {},
         "envVariables": {},

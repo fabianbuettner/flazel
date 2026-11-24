@@ -1,0 +1,21 @@
+# C without __STRICT_ANSI__ (flake.nix: feature-macros, m-pi-c-mingw64,
+# strict-ansi).
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+cc_binary(
+    name = "m_pi",
+    srcs = ["m_pi.c"],
+)
+
+cc_library(
+    name = "posix_c_source",
+    srcs = ["posix_c_source.c"],
+)
+
+# A redefined macro is a warning, which projects often build as an error.
+cc_library(
+    name = "default_source",
+    srcs = ["default_source.c"],
+    copts = ["-Werror"],
+    target_compatible_with = ["@platforms//os:linux"],
+)

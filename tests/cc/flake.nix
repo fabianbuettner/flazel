@@ -860,6 +860,175 @@
           '';
         };
 
+        # The posix checks' control: with __STRICT_ANSI__, libc hides the
+        # declarations they use.
+        posixStrict = mkShellCheck {
+          name = "posix-strict";
+          variant = variants.default;
+          shell.toolchains = selectionToolchains;
+          script = ''
+            for tc in ${pkgs.lib.concatStringsSep " " allSelection}; do
+              if bazel build "--platforms=@local_config_cc_$tc//:platform" --conlyopt=-D__STRICT_ANSI__ //posix:posix 2>$TMPDIR/build.err; then
+                fail "$tc: built //posix:posix with __STRICT_ANSI__"
+              fi
+              grep -m2 'error:' $TMPDIR/build.err || true
+              # musl's GCC quotes names with typographic quotes.
+              for f in setenv gmtime_r; do
+                grep -q "\(implicit declaration of\|undeclared\) function [^ ]*$f[^a-z_ ]" $TMPDIR/build.err \
+                  || fail "$tc: -D__STRICT_ANSI__ did not hide $f"
+              done
+            done
+          '';
+        };
+
+        # C sources that set their own feature-test macros build as written: a
+        # POSIX.1-2001 request leaves strlcpy to the program, and a bare
+        # _DEFAULT_SOURCE is no redefinition. The control: -D_DEFAULT_SOURCE breaks both.
+        featureMacros = mkShellCheck {
+          name = "feature-macros";
+          variant = variants.default;
+          shell.toolchains = selectionToolchains;
+          script = ''
+            # $1 fails to build target $2 under -D_DEFAULT_SOURCE with an error matching $3.
+            breaks() {
+              if bazel build "--platforms=@local_config_cc_$1//:platform" --conlyopt=-D_DEFAULT_SOURCE "$2" 2>$TMPDIR/build.err; then
+                fail "$1: built $2 with -D_DEFAULT_SOURCE"
+              fi
+              grep -m2 'error:' $TMPDIR/build.err || true
+              grep -q "$3" $TMPDIR/build.err || fail "$1: -D_DEFAULT_SOURCE did not break $2 with $3"
+            }
+            for tc in ${pkgs.lib.concatStringsSep " " allSelection}; do
+              bazel build "--platforms=@local_config_cc_$tc//:platform" //strict_ansi:posix_c_source //strict_ansi:default_source \
+                || fail "$tc: could not build //strict_ansi:posix_c_source //strict_ansi:default_source"
+              breaks $tc //strict_ansi:posix_c_source "static declaration of [^ ]*strlcpy[^ ]* follows non-static declaration"
+              breaks $tc //strict_ansi:default_source "[^ ]*_DEFAULT_SOURCE[^ ]* \(macro \)\?redefined"
+            done
+          '';
+        };
+
+        # GCC keeps ISO C's floating-point semantics: no a*b+c contracted into
+        # an FMA. The control: GNU C fuses it.
+        fpContract = mkShellCheck {
+          name = "fp-contract";
+          variant = variants.default;
+          shell.toolchains.default = gccCfg;
+          script = ''
+            # $1 (none or some) FMA instructions in what bazel builds with the
+            # rest of the arguments.
+            fuses() {
+              local want=$1 n
+              shift
+              if ! bazel build "$@"; then
+                fail "could not build $*"
+                return
+              fi
+              n=$(bazel cquery "$@" --output=files 2>/dev/null \
+                | xargs ${pkgs.binutils-unwrapped}/bin/objdump -d | grep -c vfmadd || true)
+              echo "$n vfmadd: $*"
+              if [ "$want" = none ] && [ "$n" != 0 ]; then fail "fused: $*"; fi
+              if [ "$want" = some ] && [ "$n" = 0 ]; then fail "did not fuse: $*"; fi
+            }
+            fuses none //fp_contract:c
+            fuses some --conlyopt=-std=gnu17 //fp_contract:c
+          '';
+        };
+
+        # C compiles and C header parses, external repositories included, get
+        # the C standard and -U__STRICT_ANSI__; C++ ones do not. The control: with
+        # __STRICT_ANSI__, mingw-w64 hides M_PI from //strict_ansi:m_pi.
+        # platforms: toolchain names, compiled for by their platforms.
+        # windows: whether every toolchain targets Windows.
+        mkStrictAnsiCheck =
+          {
+            name,
+            toolchains,
+            platforms,
+            windows,
+          }:
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains = toolchains;
+            script = ''
+              parse=(--features=parse_headers --process_headers_in_dependencies)
+              # $1: with or without -std=c17 then -U__STRICT_ANSI__, on every
+              # action of aquery expression $3 for toolchain $2.
+              expect() {
+                local want=$1 argv
+                argv=$(bazel aquery "--platforms=@local_config_cc_$2//:platform" "''${parse[@]}" "$3" --output=jsonproto \
+                  | jq -r '(.actions // [])[].arguments | join(" ")')
+                [ -n "$argv" ] || { fail "$2: no action of $3"; return; }
+                echo "$2 $3: $(grep -c -- ' -U__STRICT_ANSI__ ' <<<"$argv" || true) of $(wc -l <<<"$argv") compiles pass -U__STRICT_ANSI__"
+                if [ "$want" = with ]; then
+                  if grep -v -q -- ' -std=c17 .*-U__STRICT_ANSI__ ' <<<"$argv"; then fail "$2: a compile of $3 lacks -std=c17 then -U__STRICT_ANSI__"; fi
+                elif grep -q -- '__STRICT_ANSI__' <<<"$argv"; then
+                  fail "$2: a compile of $3 passes __STRICT_ANSI__"
+                fi
+              }
+              compiles() { echo "mnemonic(\"CppCompile\", $1)"; }
+              # The external library's C compile and its header's parse as C++.
+              posix_c="inputs('.*/posix\\.c', $(compiles @flazel-cc-test-dep//:posix))"
+              posix_h="outputs('.*/posix\\.h\\.processed', $(compiles @flazel-cc-test-dep//:posix))"
+              for tc in ${pkgs.lib.concatStringsSep " " platforms}; do
+                expect with $tc "$(compiles //strict_ansi:m_pi)"
+                expect with $tc "$posix_c"
+                expect with $tc "$(compiles //clang_check:c_header)"
+                expect without $tc "$(compiles //clang_check:base)"
+                expect without $tc "$posix_h"
+                expect without $tc "$(compiles //clang_check:self_contained)"
+              done
+              ${pkgs.lib.optionalString windows ''
+                if bazel build --platforms=@local_config_cc_default//:platform --conlyopt=-D__STRICT_ANSI__ //strict_ansi:m_pi 2>$TMPDIR/build.err; then
+                  fail "built //strict_ansi:m_pi with __STRICT_ANSI__"
+                fi
+                grep -m2 'error:' $TMPDIR/build.err || true
+                grep -q "'M_PI' undeclared" $TMPDIR/build.err || fail "-D__STRICT_ANSI__ did not hide M_PI"
+              ''}
+            '';
+          };
+        strictAnsi = mkStrictAnsiCheck {
+          name = "strict-ansi";
+          toolchains = selectionToolchains;
+          platforms = allSelection;
+          windows = false;
+        };
+        strictAnsiMingw64 = mkStrictAnsiCheck {
+          name = "strict-ansi-mingw64";
+          toolchains.default = mingw64Cfg;
+          platforms = [ "default" ];
+          windows = true;
+        };
+        strictAnsiMingw32 = mkStrictAnsiCheck {
+          name = "strict-ansi-mingw32";
+          toolchains.default = mingw32Cfg;
+          platforms = [ "default" ];
+          windows = true;
+        };
+
+        # x87 rounds t = a*b to double under ISO C's standard excess precision,
+        # and keeps it in an 80-bit register under GNU C, the control.
+        excessPrecisionMingw32 = mkShellCheck {
+          name = "excess-precision-mingw32";
+          variant = variants.default;
+          shell.toolchains.default = mingw32Cfg;
+          script = ''
+            # $1: what the program prints when built with the rest of the arguments.
+            prints() {
+              local want=$1 got
+              shift
+              if ! bazel build --platforms=@local_config_cc_default//:platform -c opt "$@" //excess_precision:excess_precision; then
+                fail "could not build $*"
+                return
+              fi
+              got=$(${wineRunner} bazel-bin/excess_precision/excess_precision.exe | tr -d '\r')
+              echo "prints $got: $*"
+              [ "$got" = "$want" ] || fail "printed $got, want $want: $*"
+            }
+            prints 0x0p+0
+            prints -0x1p-60 --conlyopt=-std=gnu17
+          '';
+        };
+
         # layering_check and parse_headers under clang, and parse_headers under
         # GCC, asserted from the actions aquery lists and from builds that must
         # fail.
@@ -1299,6 +1468,51 @@
             expect = "flazel freestanding ok";
             runTest = false;
           };
+          # POSIX declarations without a feature-test macro, in an external
+          # repository; posix-strict is the control.
+          posix-gcc = mkCcCheck {
+            name = "flazel-cc-posix-gcc";
+            cfg = gccCfg;
+            pkg = "posix";
+            bin = "posix";
+            expect = "flazel posix ok";
+            runTest = false;
+          };
+          posix-clang = mkCcCheck {
+            name = "flazel-cc-posix-clang";
+            cfg = clangCfg;
+            pkg = "posix";
+            bin = "posix";
+            expect = "flazel posix ok";
+            runTest = false;
+          };
+          posix-musl = mkCcCheck {
+            name = "flazel-cc-posix-musl";
+            cfg = staticCfg;
+            pkg = "posix";
+            bin = "posix";
+            expect = "flazel posix ok";
+            runTest = false;
+          };
+          posix-strict = posixStrict;
+          feature-macros = featureMacros;
+          # M_PI in C on mingw-w64; strict-ansi-mingw64 holds the control.
+          m-pi-c-mingw64 = mkCcCheck {
+            name = "flazel-cc-m-pi-c-mingw64";
+            cfg = mingw64Cfg;
+            pkg = "strict_ansi";
+            bin = "m_pi";
+            expect = "flazel m_pi ok";
+            runTest = false;
+            bazelFlags = "--platforms=@local_config_cc_default//:platform";
+            exe = ".exe";
+            runner = "${wineRunner}";
+          };
+          fp-contract = fpContract;
+          strict-ansi = strictAnsi;
+          strict-ansi-mingw64 = strictAnsiMingw64;
+          strict-ansi-mingw32 = strictAnsiMingw32;
+          excess-precision-mingw32 = excessPrecisionMingw32;
         };
 
         # nix develop .#bazel8 (or another of otherVariants) runs that Bazel.

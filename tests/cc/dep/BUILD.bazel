@@ -6,3 +6,10 @@ cc_library(
     hdrs = ["counter.h"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "posix",
+    srcs = ["posix.c"],
+    hdrs = ["posix.h"],
+    visibility = ["//visibility:public"],
+)

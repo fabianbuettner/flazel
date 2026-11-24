@@ -289,6 +289,9 @@ def _with_deps_root(ctx, flags):
 def _impl(ctx):
     targets_windows = ctx.attr.object_format == "pe"
     parse_headers_action_configs, parse_headers_features = _parse_headers(ctx)
+
+    # libc headers hide POSIX/GNU declarations under __STRICT_ANSI__; ISO semantics stay.
+    c_flags = ["-std=" + ctx.attr.c_standard, "-U__STRICT_ANSI__"]
     features = _link_inputs_features() + [
         feature(
             # Headers of external repositories (every nixpkgs library) are system
@@ -338,11 +341,11 @@ def _impl(ctx):
             flag_sets = [
                 flag_set(
                     actions = [ACTION_NAMES.c_compile],
-                    flag_groups = [flag_group(flags = ["-std=" + ctx.attr.c_standard])],
+                    flag_groups = [flag_group(flags = c_flags)],
                 ),
                 flag_set(
                     actions = [ACTION_NAMES.cpp_header_parsing],
-                    flag_groups = [flag_group(flags = ["-std=" + ctx.attr.c_standard])],
+                    flag_groups = [flag_group(flags = c_flags)],
                     with_features = [with_feature_set(features = ["parse_headers_as_c"])],
                 ),
             ],

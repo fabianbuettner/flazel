@@ -733,6 +733,13 @@ Bazel `--features=` flags wired to compiler/linker options.
 RELRO. A consumer wants it here rather than as `--linkopt=-Wl,-z,now`, which
 mingw-w64's linker rejects and which Bazel cannot drop for one platform.
 
+`c_flags` compiles C in the dialect `cStandard` in `mkConfig` selects, without
+`__STRICT_ANSI__`, external repositories included. libc headers hide
+declarations C libraries expect, like `setenv` or mingw-w64's `M_PI`, under
+`__STRICT_ANSI__`; without it C sees the libc headers' GNU declarations, while
+under an ISO dialect GCC keeps its semantics, such as its floating-point rules,
+that a GNU dialect would change.
+
 ### Opt-in
 
 | Feature | Flags | Notes |
