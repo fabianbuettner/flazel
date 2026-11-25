@@ -24,4 +24,8 @@ in
 
   # File in nixDepsDir recording the CC toolchain decisions (lib/cc/bazelrc.nix).
   ccToolchainsFile = extract "nix_cc.bzl" "CC_TOOLCHAINS_FILE";
+
+  # The Nix perl's link in nixDepsDir, and the repo of its toolchains.
+  perlDir = extract "nix_perl.bzl" "PERL_DIR";
+  perlRepo = extract "nix_perl.bzl" "PERL_REPO";
 }

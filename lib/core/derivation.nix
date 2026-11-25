@@ -15,7 +15,7 @@
 #   };
 #
 let
-  inherit (import ./constants.nix) nixDepsDir;
+  inherit (import ./constants.nix) nixDepsDir perlDir perlRepo;
   bazelWithUsrBinEnv = import ./bazel-with-usr-bin-env.nix;
 in
 rec {
@@ -79,15 +79,20 @@ rec {
       extraSetup ? "",
       # Startup options for every Bazel call in the workspace.
       startupOptions,
+      # The perl of bazel/nix_perl.bzl's toolchains, or null for none.
+      perl,
     }:
     let
       bazelrc = pkgs.writeText "flazel-bazelrc.nix" (mkBazelrcContent {
         inherit
-          toolchainLines
           moduleOverrides
           lockfileMode
           caches
           ;
+        # Ahead of the perls rules_perl registers, which it downloads.
+        toolchainLines =
+          toolchainLines
+          + pkgs.lib.optionalString (perl != null) "build --extra_toolchains=@${perlRepo}//:all\n";
       });
     in
     ''
@@ -186,6 +191,10 @@ rec {
           touch "$_fz_seeded"
       fi
 
+      # The perl exists before a .bazelrc.nix registers it, and is gone only
+      # after none does.
+      ${pkgs.lib.optionalString (perl != null) "flazel_link ${perl} ${nixDepsDir}/${perlDir}"}
+
       # Framework bazelrc (override + non-BCR + toolchains) plus the repository
       # cache, whose path is only known here.
       _fz_rc="${nixDepsDir}/.bazelrc.nix.new.$$"
@@ -196,6 +205,7 @@ rec {
       '') startupOptions}
       flazel_put "$_fz_rc" ${nixDepsDir}/.bazelrc.nix
       rm -f "$_fz_rc"
+      ${pkgs.lib.optionalString (perl == null) "rm -f ${nixDepsDir}/${perlDir}"}
       ${extraSetup}
     '';
 
@@ -221,6 +231,9 @@ rec {
       extraDepsSetup ? "",
       # Language-specific toolchain registration lines for .bazelrc.nix
       toolchainLines ? "",
+      # The perl rules_perl targets run with (bazel/nix_perl.bzl), or null to
+      # leave them to rules_perl's downloaded perls.
+      perl ? null,
       nativeBuildInputs ? [ ],
       buildInputs ? [ ],
       runtimeDependencies ? [ ],
@@ -253,6 +266,7 @@ rec {
             caches
             moduleOverrides
             toolchainLines
+            perl
             ;
           extraSetup = extraDepsSetup;
           # Every Bazel call of the build, also from tools, keeps this root.

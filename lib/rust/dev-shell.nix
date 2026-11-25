@@ -23,6 +23,8 @@
   moduleOverrides ? { },
   # See lib/core/dev-shell.nix.
   lockfileMode ? null,
+  # See lib/core/derivation.nix.
+  perl ? null,
   cargoBazel ? null,
   extraPackages ? [ ],
   shellHook ? "",
@@ -108,6 +110,7 @@ coreDevShell {
     bazel
     moduleOverrides
     lockfileMode
+    perl
     ;
 
   toolchainLines = rustToolchainLines;

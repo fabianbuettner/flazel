@@ -28,3 +28,10 @@ bzl_library(
     srcs = ["nix_tool.bzl"],
     visibility = ["//visibility:public"],
 )
+
+bzl_library(
+    name = "nix_perl",
+    srcs = ["nix_perl.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [":nix_common"],
+)

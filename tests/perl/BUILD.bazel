@@ -1,0 +1,34 @@
+# Which perl each kind of rules_perl use runs: the flake checks the reports.
+
+load("@rules_perl//perl:perl.bzl", "perl_binary")
+
+perl_binary(
+    name = "report",
+    srcs = ["report.pl"],
+)
+
+# A perl_binary as a tool, in the exec configuration.
+genrule(
+    name = "via_binary",
+    outs = ["via_binary.json"],
+    cmd = "$(location :report) > $@",
+    tools = [":report"],
+)
+
+# $(PERL) of the target toolchain.
+genrule(
+    name = "via_make_var",
+    srcs = ["report.pl"],
+    outs = ["via_make_var.json"],
+    cmd = "$(PERL) $< > $@",
+    toolchains = ["@rules_perl//perl:current_toolchain"],
+)
+
+# $(PERL) of the exec toolchain.
+genrule(
+    name = "via_exec_make_var",
+    srcs = ["report.pl"],
+    outs = ["via_exec_make_var.json"],
+    cmd = "$(PERL) $< > $@",
+    toolchains = ["@rules_perl//perl:current_exec_toolchain"],
+)

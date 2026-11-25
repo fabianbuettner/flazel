@@ -1,0 +1,24 @@
+module(
+    name = "flazel-perl-test",
+)
+
+bazel_dep(name = "flazel")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_perl", version = "2.0.0")
+
+local_path_override(
+    module_name = "flazel",
+    path = "../..",
+)
+
+nix_perl = use_repo_rule("@flazel//bazel:nix_perl.bzl", "nix_perl")
+
+nix_perl(name = "nix_perl")
+
+nix_cc = use_extension("@flazel//bazel:nix_cc.bzl", "nix_cc")
+nix_cc.toolchain(name = "default")
+use_repo(
+    nix_cc,
+    "local_config_cc_default",
+    "local_config_cc_default_deps",
+)

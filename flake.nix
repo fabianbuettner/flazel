@@ -222,6 +222,104 @@
               } == bazel;
             pkgs.runCommand "flazel-bazel-with-usr-bin-env-darwin-test" { } "touch $out";
 
+          # Every dev shell and derivation passes `perl` to the deps setup,
+          # which links it or removes a stale link.
+          perl-opt-in =
+            let
+              inherit (pkgs) lib;
+              inherit (import ./lib/core/constants.nix) nixDepsDir perlDir;
+              rustPkgs = import nixpkgs {
+                inherit system;
+                overlays = [ rust-overlay.overlays.default ];
+              };
+              caches = coreLib.mkBcrCaches {
+                inherit pkgs;
+                lockFile = { };
+                archives = [ ];
+              };
+              ccCfg = ccLib.mkConfig { inherit pkgs; };
+              rustCfg = rustLib.mkConfig { pkgs = rustPkgs; };
+              build = {
+                inherit caches;
+                name = "flazel-perl-opt-in";
+                src = pkgs.emptyDirectory;
+                bazelCommand = "build //...";
+                installPhase = "";
+              };
+              # Each entry point's setup script, given perl.
+              setups = {
+                "core.mkFlazelDevShell" = perl: (coreLib.mkFlazelDevShell { inherit pkgs caches perl; }).shellHook;
+                "core.mkFlazelDerivation" =
+                  perl: (coreLib.mkFlazelDerivation (build // { inherit pkgs perl; })).buildPhase;
+                "cc.mkDevShell" =
+                  perl:
+                  (ccLib.mkDevShell {
+                    inherit pkgs caches perl;
+                    toolchains.default = ccCfg;
+                  }).shellHook;
+                "cc.mkDerivation" =
+                  perl:
+                  (ccLib.mkDerivation (
+                    build
+                    // {
+                      inherit pkgs perl;
+                      cfg = ccCfg;
+                    }
+                  )).buildPhase;
+                "rust.mkDevShell" =
+                  perl:
+                  (rustLib.mkDevShell {
+                    inherit caches perl;
+                    pkgs = rustPkgs;
+                    toolchains.default = rustCfg;
+                  }).shellHook;
+                "rust.mkDerivation" =
+                  perl:
+                  (rustLib.mkDerivation (
+                    build
+                    // {
+                      inherit perl;
+                      pkgs = rustPkgs;
+                      cfg = rustCfg;
+                    }
+                  )).buildPhase;
+              };
+              has =
+                needle: text:
+                lib.hasInfix (builtins.unsafeDiscardStringContext needle) (
+                  builtins.unsafeDiscardStringContext text
+                );
+              link = "flazel_link ${pkgs.perl} ${nixDepsDir}/${perlDir}";
+              unlink = "rm -f ${nixDepsDir}/${perlDir}";
+              # Every exported dev shell or derivation builder has a setup above.
+              builders = lib.concatLists (
+                lib.mapAttrsToList
+                  (
+                    group: attrs: map (name: "${group}.${name}") (lib.filter (lib.hasPrefix "mk") (lib.attrNames attrs))
+                  )
+                  {
+                    core = coreLib;
+                    cc = ccLib;
+                    hdl = hdlLib;
+                    rust = rustLib;
+                  }
+              );
+              uncovered = lib.filter (
+                b: builtins.match ".*(DevShell|Derivation)" b != null && !(setups ? ${b})
+              ) builders;
+              failures =
+                map (b: "${b}: no perl-opt-in setup") uncovered
+                ++ lib.concatLists (
+                  lib.mapAttrsToList (
+                    name: setup:
+                    lib.optional (!has link (setup pkgs.perl)) "${name}: perl = pkgs.perl lacks `${link}`"
+                    ++ lib.optional (!has unlink (setup null)) "${name}: perl = null lacks `${unlink}`"
+                  ) setups
+                );
+            in
+            assert lib.assertMsg (failures == [ ]) (lib.concatStringsSep "\n" failures);
+            pkgs.runCommand "flazel-perl-opt-in-test" { } "touch $out";
+
           # How update-locks stops a command that starts with TERM ignored.
           update-locks-stop-marker =
             let

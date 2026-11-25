@@ -26,6 +26,8 @@
   lockFile ? null,
   # Bazel module name -> source path; see lib/core/derivation.nix.
   moduleOverrides ? { },
+  # See lib/core/derivation.nix.
+  perl ? null,
   extraNativeBuildInputs ? [ ],
   extraBuildInputs ? [ ],
 }:
@@ -66,6 +68,7 @@ coreDeriv.mkFlazelDerivation {
     moduleOverrides
     bazelCommand
     installPhase
+    perl
     ;
 
   toolchainLines = ccSelection.lines;

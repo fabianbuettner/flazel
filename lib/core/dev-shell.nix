@@ -24,6 +24,8 @@
   toolchainLines ? "",
   # Optional: extra setup script (for language-specific toolchain/libs)
   extraDepsSetup ? "",
+  # See lib/core/derivation.nix.
+  perl ? null,
   # Startup options for the workspace; a user's shell keeps Bazel's own.
   startupOptions ? [ ],
   packages ? [ ],
@@ -73,6 +75,7 @@ pkgs.mkShell {
         lockfileMode
         toolchainLines
         startupOptions
+        perl
         ;
       extraSetup = extraDepsSetup;
     }}

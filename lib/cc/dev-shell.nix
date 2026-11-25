@@ -29,6 +29,8 @@
   # See lib/core/dev-shell.nix.
   lockfileMode ? null,
   startupOptions ? [ ],
+  # See lib/core/derivation.nix.
+  perl ? null,
   extraPackages ? [ ],
   shellHook ? "",
 }:
@@ -107,6 +109,7 @@ coreDevShell {
     moduleOverrides
     lockfileMode
     startupOptions
+    perl
     ;
 
   toolchainLines = ccSelection.lines;

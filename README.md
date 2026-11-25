@@ -38,6 +38,7 @@ One `nix develop` gives you a hermetic compiler, linker and libc. One `bazel bui
   - refuses a `/usr` without `env` (unsupported): adding `env` would write into a filesystem flazel does not own.
 
   On other build platforms it is Bazel unchanged, and dev shells use plain Bazel, relying on the host's `/usr/bin/env`. `env` finds `bash` on the action `PATH` that nixpkgs' Bazel sets to store paths, so a build that forces `--action_env=PATH=/bin:/usr/bin` gets `env: 'bash': No such file or directory`.
+- **Nix perl for rules_perl**: `perl = pkgs.perl` runs `rules_perl` exec tools and the exec `$(PERL)` with it, and host-targeted `rules_perl` targets and their `$(PERL)`. Under a Windows target, `rules_perl` itself breaks the exec `$(PERL)` by turning its `/` into `\`. See [Perl](#perl)
 - **Non-BCR deps**: declared once in `flake.nix`, not duplicated in `MODULE.bazel`
 - **Two lockfiles to bind them**: `flake.lock` pins nixpkgs, `MODULE.bazel.lock` pins Bazel deps. Together they fully determine every build input. The archives a build fetches live in a committed `flazel-archives.json`, written by `flazel-lock-archives` (see [The archives a build fetches](#the-archives-a-build-fetches)).
 
@@ -356,6 +357,33 @@ bazel_dep(name = "rules_verilog", version = "1.4.2")
 
 Older `rules_verilator` releases report a failed Verilator run as success.
 Complete working example, RTL checked against a C++ model: [`tests/hdl/`](tests/hdl/).
+
+## Perl
+
+`rules_perl` downloads prebuilt perls and registers them as its toolchains.
+Pass `perl` to `mkDevShell` and `mkDerivation` alike to run its exec tools,
+the exec `$(PERL)` and host-targeted targets with a nixpkgs perl instead:
+
+```nix
+perl = pkgs.perl;
+```
+
+flazel then registers `@nix_perl//:all` in `.bazelrc.nix`, ahead of
+`rules_perl`'s own toolchains, for the host as target and as exec platform.
+flazel has no dependency on `rules_perl`, so `MODULE.bazel` declares it and
+the repo:
+
+```starlark
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_perl", version = "2.0.0")
+
+nix_perl = use_repo_rule("@flazel//bazel:nix_perl.bzl", "nix_perl")
+nix_perl(name = "nix_perl")
+```
+
+The toolchain builds no XS modules. Without `perl`, `rules_perl` uses the
+perl it downloads, also in the dev shell. Complete working example:
+[`tests/perl/`](tests/perl/).
 
 ## Bazel versions
 
