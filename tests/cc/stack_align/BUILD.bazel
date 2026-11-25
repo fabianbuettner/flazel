@@ -1,0 +1,60 @@
+# Stack alignment on Windows (flake.nix: stack-align-mingw64, -mingw32).
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+cc_library(
+    name = "report",
+    srcs = ["report.cc"],
+    hdrs = ["report.h"],
+)
+
+# report built without either stack alignment feature; under LTO it must not
+# undo the flag in avx_mixed or sse_mixed.
+cc_library(
+    name = "report_opted_out",
+    srcs = ["report.cc"],
+    hdrs = ["report.h"],
+    features = [
+        "-assume_4_byte_aligned_stack",
+        "-unaligned_vector_moves",
+    ],
+)
+
+cc_binary(
+    name = "avx",
+    srcs = ["avx.cc"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:windows",
+    ],
+    deps = [":report"],
+)
+
+cc_binary(
+    name = "avx_mixed",
+    srcs = ["avx.cc"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:windows",
+    ],
+    deps = [":report_opted_out"],
+)
+
+cc_binary(
+    name = "sse",
+    srcs = ["sse.cc"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_32",
+        "@platforms//os:windows",
+    ],
+    deps = [":report"],
+)
+
+cc_binary(
+    name = "sse_mixed",
+    srcs = ["sse.cc"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_32",
+        "@platforms//os:windows",
+    ],
+    deps = [":report_opted_out"],
+)

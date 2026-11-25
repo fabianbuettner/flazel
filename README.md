@@ -821,6 +821,8 @@ Bazel `--features=` flags wired to compiler/linker options.
 | `split_debug` | `-gsplit-dwarf` | `-c dbg`, ELF targets |
 | `gc_sections` | `-ffunction-sections -fdata-sections -Wl,--gc-sections` | `-c opt` |
 | `bind_now` | `-Wl,-z,now` | Linux targets (ELF), a no-op for static links; not bare metal, Windows or macOS |
+| `unaligned_vector_moves` | `-Wa,-muse-unaligned-vector-move` | 64-bit Windows with GCC (mingw-w64), C and C++ compiles and links |
+| `assume_4_byte_aligned_stack` | `-mincoming-stack-boundary=2` | 32-bit Windows with GCC (mingw-w64), C and C++ compiles and links |
 
 `bind_now` turns the RELRO every supported linker already applies into full
 RELRO. A consumer wants it here rather than as `--linkopt=-Wl,-z,now`, which
@@ -837,6 +839,30 @@ semantics, such as its floating-point rules, that a GNU dialect would change.
 `cxx_flags` defines `_GNU_SOURCE` for C++ on Windows targets, as Linux g++
 predefines it and mingw-w64's does not, so declarations like `M_PI` are visible
 on both.
+
+`unaligned_vector_moves` has the assembler encode GCC's aligned vector moves as
+unaligned ones. On 64-bit Windows, GCC places some 32-byte-aligned stack
+objects, such as a by-value AVX argument's copy, where the ABI's 16-byte stack
+alignment leaves them 16 bytes off, yet moves them with `vmovdqa`, which faults
+there ([GCC PR 54412](https://gcc.gnu.org/bugzilla/show_bug.cgi?id=54412)).
+SIMD libraries like Highway hit it. Links pass it too: under LTO they generate
+the code, and GCC drops every `-Wa` of the compiles when their objects
+disagree, so one target that opts out, or a prebuilt LTO object, would bring
+`vmovdqa` back. Under LTO, a library's opt-out does not hold unless the binary
+linking it opts out too. Clang realigns the stack and its assembler rejects the
+flag, so clang toolchains do not get it. Assembly sources keep their moves;
+inline assembly does not.
+
+`assume_4_byte_aligned_stack` tells GCC that 32-bit Windows aligns the stack to
+4 bytes only. GCC otherwise assumes 16 and spills SSE values with `movaps`
+without realigning, which faults when a caller holds only to the 4 bytes the
+ABI promises. With it, GCC still keeps its outgoing calls 16-byte aligned, so
+every function that calls another, or keeps 16-byte-aligned data on the stack,
+realigns its frame: a few instructions in many more functions. That
+realignment also protects the code it calls that was built without the flag,
+such as the prebuilt libgcc, whose SSE moves to the stack assume 16. Under LTO,
+one object or the link passing it applies it to the whole program, so a
+library's opt-out holds only if nothing else in the binary passes it.
 
 ### Opt-in
 

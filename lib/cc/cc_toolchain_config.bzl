@@ -41,13 +41,14 @@ _CXX_ACTIONS = [
     ACTION_NAMES.cpp_module_codegen,
     ACTION_NAMES.linkstamp_compile,
 ]
+_CXX_CODEGEN_ACTIONS = [a for a in _CXX_ACTIONS if a != ACTION_NAMES.cpp_header_parsing]
 
 # The C++ actions, header parsing included unless it parses C
 # (parse_headers_as_c); every C++-only flag goes through this.
 def _cxx_flag_sets(flags):
     return [
         flag_set(
-            actions = [a for a in _CXX_ACTIONS if a != ACTION_NAMES.cpp_header_parsing],
+            actions = _CXX_CODEGEN_ACTIONS,
             flag_groups = [flag_group(flags = flags)],
         ),
         flag_set(
@@ -192,6 +193,29 @@ def _windows_features():
         feature(name = "targets_windows", enabled = True),
         feature(name = "copy_dynamic_libraries_to_binary", enabled = True),
     ]
+
+# On C and C++ code generation, links included: LTO generates code there, and
+# drops every -Wa when its objects disagree on them.
+def _codegen_feature(name, flags):
+    return feature(
+        name = name,
+        enabled = True,
+        flag_sets = [flag_set(
+            actions = [ACTION_NAMES.c_compile] + _CXX_CODEGEN_ACTIONS + _LINK_ACTIONS,
+            flag_groups = [flag_group(flags = flags)],
+        )],
+    )
+
+def _mingw_gcc_features(target_cpu):
+    if target_cpu == "x86_64":
+        # GCC places some 32-byte-aligned stack objects 16 bytes off the Win64
+        # stack's alignment, yet moves them with aligned AVX moves (GCC PR 54412).
+        return [_codegen_feature("unaligned_vector_moves", ["-Wa,-muse-unaligned-vector-move"])]
+    if target_cpu == "i686":
+        # Win32 aligns the stack to 4 bytes; GCC assumes 16 and spills SSE
+        # values with movaps without realigning.
+        return [_codegen_feature("assume_4_byte_aligned_stack", ["-mincoming-stack-boundary=2"])]
+    return []
 
 _WINDOWS_ARTIFACT_NAMES = [
     artifact_name_pattern(category_name = "executable", prefix = "", extension = ".exe"),
@@ -569,7 +593,7 @@ def _impl(ctx):
                 with_features = [with_feature_set(features = ["dbg"])],
             )],
         ),
-    ] + (_windows_features() if targets_windows else _pic_features()) + (_elf_features(ctx.attr.loads_shared_objects) if ctx.attr.object_format == "elf" else []) + (_clang_features() if ctx.attr.is_clang else []) + parse_headers_features
+    ] + (_windows_features() if targets_windows else _pic_features()) + (_elf_features(ctx.attr.loads_shared_objects) if ctx.attr.object_format == "elf" else []) + (_clang_features() if ctx.attr.is_clang else []) + (_mingw_gcc_features(ctx.attr.target_cpu) if ctx.attr.compiler == "mingw-gcc" else []) + parse_headers_features
 
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,

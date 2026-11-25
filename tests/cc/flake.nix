@@ -382,6 +382,27 @@
                   | awk -v RS= -v want="$want" '(want == "exec") == /Configuration: [^\n]*-exec/' \
                   | { grep -o 'local_config_cc_[a-z0-9_]*/bin/gcc' || true; } | sort -u | tr '\n' ' '
               }
+              # Repeats the link of $3, under the bazel flags after it, into $1
+              # without the flag $2 (none if empty); its errors go to link.err.
+              # ld stamps PE files with SOURCE_DATE_EPOCH, else the time.
+              relink() {
+                local out=$1 drop=$2 target=$3 args=() arg prev= dropped= execroot
+                shift 3
+                execroot=$(bazel info "$@" execution_root)
+                while IFS= read -r arg; do
+                  if [ -n "$drop" ] && [ "$arg" = "$drop" ]; then
+                    dropped=1
+                  elif [ "$prev" = -o ]; then
+                    args+=("$out")
+                  else
+                    args+=("$arg")
+                  fi
+                  prev=$arg
+                done < <(bazel aquery "$@" "mnemonic(\"CppLink\", $target)" --output=jsonproto \
+                  | jq -r '(.actions // [])[].arguments[]')
+                [ -z "$drop" ] || [ -n "$dropped" ] || { fail "the link of $target passes no $drop"; return 1; }
+                (cd "$execroot" && SOURCE_DATE_EPOCH=0 "''${args[@]}") 2>$TMPDIR/link.err
+              }
               ${script}
               [ "$failed" = 0 ]
             '';
@@ -1125,6 +1146,224 @@
           windows = true;
         };
 
+        # Each mingw-w64 GCC toolchain's C and C++ compiles and links get its
+        # stack alignment flag and not the other's; Linux ones, clang's among
+        # them, get neither. stack-align-mingw* hold the behavioural controls.
+        # has, lacks: flags every action passes, and flags none passes.
+        mkStackFlagsCheck =
+          {
+            name,
+            toolchains,
+            has,
+            lacks,
+          }:
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains = toolchains;
+            script = ''
+              # Every $1 action (CppCompile or CppLink) of $3 under toolchain $2.
+              expect() {
+                local argv f
+                argv=$(bazel aquery "--platforms=@local_config_cc_$2//:platform" "mnemonic(\"$1\", $3)" --output=jsonproto \
+                  | jq -r '(.actions // [])[].arguments | join(" ")')
+                [ -n "$argv" ] || { fail "$2: no $1 of $3"; return; }
+                for f in ${pkgs.lib.concatStringsSep " " (has ++ lacks)}; do
+                  echo "$2 $1 $3: $(grep -c -E -- " $f( |$)" <<<"$argv" || true) of $(wc -l <<<"$argv") pass $f"
+                done
+                for f in ${pkgs.lib.concatStringsSep " " has}; do
+                  if grep -v -q -E -- " $f( |$)" <<<"$argv"; then fail "$2: a $1 of $3 lacks $f"; fi
+                done
+                for f in ${pkgs.lib.concatStringsSep " " lacks}; do
+                  if grep -q -- " $f" <<<"$argv"; then fail "$2: a $1 of $3 passes $f"; fi
+                done
+              }
+              for tc in ${pkgs.lib.concatStringsSep " " (builtins.attrNames toolchains)}; do
+                for mnemonic in CppCompile CppLink; do
+                  expect $mnemonic $tc //m_pi:m_pi
+                  expect $mnemonic $tc //excess_precision:excess_precision
+                done
+              done
+            '';
+          };
+        unalignedVectorMovesFlag = "-Wa,-muse-unaligned-vector-move";
+        incomingStackBoundaryFlag = "-mincoming-stack-boundary=2";
+        stackFlags = mkStackFlagsCheck {
+          name = "stack-flags";
+          toolchains = selectionToolchains;
+          has = [ ];
+          lacks = [
+            unalignedVectorMovesFlag
+            incomingStackBoundaryFlag
+          ];
+        };
+        stackFlagsMingw64 = mkStackFlagsCheck {
+          name = "stack-flags-mingw64";
+          toolchains.default = mingw64Cfg;
+          has = [ unalignedVectorMovesFlag ];
+          lacks = [ incomingStackBoundaryFlag ];
+        };
+        stackFlagsMingw32 = mkStackFlagsCheck {
+          name = "stack-flags-mingw32";
+          toolchains.default = mingw32Cfg;
+          has = [ incomingStackBoundaryFlag ];
+          lacks = [ unalignedVectorMovesFlag ];
+        };
+
+        # //stack_align:<bin> under Wine, with and without the toolchain's stack
+        # alignment feature, in each mode. With it, symbol's code matches the
+        # regex fixed and the program runs; without it, symbol's code matches
+        # broken and not fixed, and the program faults. Then <bin>_mixed, which
+        # links //stack_align:report_opted_out, built without the feature, under
+        # LTO: it is fixed, and relinked without the link's flag, it is what
+        # `relinked` says. spread: null, or a function of report_opted_out that
+        # the relinked binary must have fixed, and one built with no flag not.
+        mkStackAlignCheck =
+          {
+            name,
+            cfg,
+            feature,
+            flag,
+            bin,
+            symbol,
+            fixed,
+            broken,
+            relinked,
+            spread,
+          }:
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains.default = cfg;
+            script = ''
+              platform=--platforms=@local_config_cc_default//:platform
+              objdump=${cfg.binutils}/bin/${cfg.target.triple}-objdump
+              # The lines of function $3's code in exe $1 that match the regex $2.
+              # GCC may have cloned it, as $3.constprop.0; absolute symbols do not count.
+              code() {
+                local sym
+                sym=$($objdump -t "$1" | awk -v s="$3" '!/\(sec -1\)/ && !found && ($NF == s || index($NF, s ".") == 1) { print $NF; found = 1 }')
+                [ -n "$sym" ] || return 0
+                $objdump -d --no-show-raw-insn --disassemble="$sym" "$1" | grep -E -- "$2" || true
+              }
+              instructions='^[[:space:]]+[0-9a-f]+:'
+
+              # $1: ok or fault, what exe $2 does under Wine.
+              runs() {
+                local out
+                out=$(${wineRunner} "$2" | tr -d '\r' || true)
+                grep -e 'flazel stack_align ok' -e '^no ' -e 'wrong sum' -e 'Unhandled exception' -e '^0x[0-9a-f]* .*: ' <<<"$out" || true
+                if [ "$1" = ok ]; then
+                  [ "$out" = "flazel stack_align ok" ]
+                else
+                  grep -q 'Unhandled exception: page fault' <<<"$out"
+                fi
+              }
+              # $1: fixed or broken, what exe $2 must be; the rest names it.
+              expect() {
+                local want=$1 exe=$2 good bad
+                shift 2
+                [ -n "$(code "$exe" "$instructions" ${symbol})" ] || { fail "$*: no code for ${symbol}"; return; }
+                good=$(code "$exe" '${fixed}' ${symbol})
+                bad=$(code "$exe" '${broken}' ${symbol})
+                echo "$*: ${symbol} matches fixed in:" "''${good:-nothing}"
+                echo "$*: ${symbol} matches broken in:" "''${bad:-nothing}"
+                echo "$*: Wine says:"
+                if [ "$want" = fixed ]; then
+                  [ -n "$good" ] || fail "$*: ${symbol} does not match fixed"
+                  runs ok "$exe" || fail "$*: failed under Wine"
+                else
+                  [ -z "$good" ] || fail "$*: ${symbol} matches fixed"
+                  [ -n "$bad" ] || fail "$*: ${symbol} does not match broken"
+                  runs fault "$exe" || fail "$*: did not fault under Wine"
+                fi
+              }
+              for mode in "-c fastbuild" "-c opt" "-c opt --features=lto"; do
+                for want in fixed broken; do
+                  # $mode is split on purpose.
+                  flags=($platform $mode)
+                  [ "$want" = fixed ] || flags+=(--features=-${feature})
+                  if bazel build "''${flags[@]}" //stack_align:${bin}; then
+                    cp -f bazel-bin/stack_align/${bin}.exe $TMPDIR/${bin}.exe
+                    expect $want $TMPDIR/${bin}.exe ${bin} "''${flags[@]:1}"
+                  else
+                    fail "could not build //stack_align:${bin} ''${flags[*]}"
+                  fi
+                done
+              done
+              lto=($platform -c opt --features=lto)
+              opted=$(bazel aquery "''${lto[@]}" 'mnemonic("CppCompile", //stack_align:report_opted_out)' --output=jsonproto \
+                | jq -r '(.actions // [])[].arguments | join(" ")')
+              [ -n "$opted" ] || fail "no CppCompile of //stack_align:report_opted_out"
+              if grep -q -- ${flag} <<<"$opted"; then
+                fail "//stack_align:report_opted_out compiles with ${flag}"
+              fi
+              if bazel build "''${lto[@]}" //stack_align:${bin}_mixed; then
+                cp -f bazel-bin/stack_align/${bin}_mixed.exe $TMPDIR/${bin}_mixed.exe
+                expect fixed $TMPDIR/${bin}_mixed.exe ${bin}_mixed "''${lto[@]:1}"
+                if relink $TMPDIR/${bin}_mixed_relinked.exe ${flag} //stack_align:${bin}_mixed "''${lto[@]}"; then
+                  expect ${relinked} $TMPDIR/${bin}_mixed_relinked.exe ${bin}_mixed "''${lto[@]:1}" linked without ${flag}
+                  ${pkgs.lib.optionalString (spread != null) ''
+                    # $1: with or without fixed in ${spread}'s code in exe $2; the rest names it.
+                    spreads() {
+                      local want=$1 exe=$2 good
+                      shift 2
+                      [ -n "$(code "$exe" "$instructions" ${spread})" ] || { fail "$*: no code for ${spread}"; return; }
+                      good=$(code "$exe" '${fixed}' ${spread})
+                      echo "$*: ${spread} matches fixed in:" "''${good:-nothing}"
+                      if [ "$want" = with ]; then
+                        [ -n "$good" ] || fail "$*: ${spread} does not match fixed"
+                      else
+                        [ -z "$good" ] || fail "$*: ${spread} matches fixed"
+                      fi
+                    }
+                    spreads with $TMPDIR/${bin}_mixed_relinked.exe ${bin}_mixed "''${lto[@]:1}" linked without ${flag}
+                    if bazel build "''${lto[@]}" --features=-${feature} //stack_align:${bin}; then
+                      cp -f bazel-bin/stack_align/${bin}.exe $TMPDIR/${bin}_none.exe
+                      spreads without $TMPDIR/${bin}_none.exe ${bin} "''${lto[@]:1}" --features=-${feature}
+                    else
+                      fail "could not build //stack_align:${bin} without ${feature}"
+                    fi
+                  ''}
+                else
+                  cat $TMPDIR/link.err
+                  fail "could not relink //stack_align:${bin}_mixed"
+                fi
+              else
+                fail "could not build //stack_align:${bin}_mixed ''${lto[*]}"
+              fi
+            '';
+          };
+        # Under LTO avx_mixed's compiles disagree on the -Wa, which GCC then drops;
+        # the link's own keeps doubled_sum fixed, and without it, it is broken.
+        stackAlignMingw64 = mkStackAlignCheck {
+          name = "stack-align-mingw64";
+          cfg = mingw64Cfg;
+          feature = "unaligned_vector_moves";
+          flag = unalignedVectorMovesFlag;
+          bin = "avx";
+          symbol = "_Z11doubled_sumPKi";
+          fixed = ''vmovdqu[[:space:]]+%ymm[0-9]+,[^ ]*\(%r[bs]p\)'';
+          broken = ''vmovdqa[[:space:]]+%ymm[0-9]+,[^ ]*\(%r[bs]p\)'';
+          relinked = "broken";
+          spread = null;
+        };
+        # Under LTO one object passing the flag applies it to the whole program:
+        # relinked without the link's, sse_mixed stays fixed, and so does report
+        # from report_opted_out.
+        stackAlignMingw32 = mkStackAlignCheck {
+          name = "stack-align-mingw32";
+          cfg = mingw32Cfg;
+          feature = "assume_4_byte_aligned_stack";
+          bin = "sse";
+          flag = incomingStackBoundaryFlag;
+          symbol = "__Z5spillPKi";
+          fixed = ''and[[:space:]]+\$0xfffffff0,%esp'';
+          broken = ''movaps[[:space:]]+%xmm[0-9]+,[^ ]*\(%e[bs]p\)'';
+          relinked = "fixed";
+          spread = "__Z6reportPKc";
+        };
+
         # Both compiler flags report the toolchain's compiler identity, and a
         # config_setting on Windows and mingw-gcc (BCR openssl's windows_mingw)
         # matches only where they say mingw-gcc.
@@ -1245,29 +1484,9 @@
               targets=("''${same[@]}")
               for ((i = 0; i < ''${#needs[@]}; i += 2)); do targets+=("''${needs[i]}"); done
               bazel build $platform "''${targets[@]}" || fail "could not build ''${targets[*]}"
-              execroot=$(bazel info $platform execution_root)
-              # Repeats the link of $1 into $2 without the flag $3 (none if empty);
-              # its errors go to link.err. ld stamps PE files with SOURCE_DATE_EPOCH,
-              # else the time.
-              relink() {
-                local args=() arg prev= dropped=
-                while IFS= read -r arg; do
-                  if [ -n "$3" ] && [ "$arg" = "$3" ]; then
-                    dropped=1
-                  elif [ "$prev" = -o ]; then
-                    args+=("$2")
-                  else
-                    args+=("$arg")
-                  fi
-                  prev=$arg
-                done < <(bazel aquery $platform "mnemonic(\"CppLink\", $1)" --output=jsonproto \
-                  | jq -r '(.actions // [])[].arguments[]')
-                [ -z "$3" ] || [ -n "$dropped" ] || { fail "the link of $1 passes no $3"; exit 1; }
-                (cd "$execroot" && SOURCE_DATE_EPOCH=0 "''${args[@]}") 2>$TMPDIR/link.err
-              }
               for ((i = 0; i < ''${#needs[@]}; i += 2)); do
                 t=''${needs[i]} sym=''${needs[i + 1]}
-                if relink $t $TMPDIR/needs${exe} -lstdc++exp; then
+                if relink $TMPDIR/needs${exe} -lstdc++exp $t $platform; then
                   fail "linked $t without -lstdc++exp"
                 fi
                 # bfd's and lld's wording.
@@ -1276,8 +1495,8 @@
                   || fail "$sym resolved without -lstdc++exp"
               done
               for t in "''${same[@]}"; do
-                relink $t $TMPDIR/with${exe} "" || { cat $TMPDIR/link.err; fail "could not relink $t"; }
-                relink $t $TMPDIR/without${exe} -lstdc++exp \
+                relink $TMPDIR/with${exe} "" $t $platform || { cat $TMPDIR/link.err; fail "could not relink $t"; }
+                relink $TMPDIR/without${exe} -lstdc++exp $t $platform \
                   || { cat $TMPDIR/link.err; fail "could not link $t without -lstdc++exp"; }
                 cmp $TMPDIR/with${exe} $TMPDIR/without${exe} \
                   && echo "$t: same binary without -lstdc++exp" \
@@ -1847,6 +2066,11 @@
           gnu-source = gnuSource;
           gnu-source-mingw64 = gnuSourceMingw64;
           gnu-source-mingw32 = gnuSourceMingw32;
+          stack-flags = stackFlags;
+          stack-flags-mingw64 = stackFlagsMingw64;
+          stack-flags-mingw32 = stackFlagsMingw32;
+          stack-align-mingw64 = stackAlignMingw64;
+          stack-align-mingw32 = stackAlignMingw32;
           pedantic-warnings = pedanticWarnings;
           compiler-id = compilerId;
           compiler-id-mingw64 = compilerIdMingw64;
