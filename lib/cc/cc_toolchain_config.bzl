@@ -195,27 +195,40 @@ def _windows_features():
     ]
 
 # On C and C++ code generation, links included: LTO generates code there, and
-# drops every -Wa when its objects disagree on them.
-def _codegen_feature(name, flags):
+# drops every -Wa when its objects disagree on them. lto_compiles: whether
+# compiles under LTO, which write IR only, pass the flags too.
+def _codegen_feature(name, flags, lto_compiles):
     return feature(
         name = name,
         enabled = True,
-        flag_sets = [flag_set(
-            actions = [ACTION_NAMES.c_compile] + _CXX_CODEGEN_ACTIONS + _LINK_ACTIONS,
-            flag_groups = [flag_group(flags = flags)],
-        )],
+        flag_sets = [
+            flag_set(
+                actions = [ACTION_NAMES.c_compile] + _CXX_CODEGEN_ACTIONS,
+                flag_groups = [flag_group(flags = flags)],
+                with_features = [] if lto_compiles else [with_feature_set(not_features = ["lto"])],
+            ),
+            flag_set(
+                actions = _LINK_ACTIONS,
+                flag_groups = [flag_group(flags = flags)],
+            ),
+        ],
     )
 
 def _mingw_gcc_features(target_cpu):
+    if target_cpu not in ("x86_64", "i686"):
+        return []
+
+    # COFF counts sections in 16 bits, GCC emits one or more per COMDAT. GCC's
+    # LTO plugin cannot read IR objects in the bigobj format.
+    big_objects = _codegen_feature("big_objects", ["-Wa,-mbig-obj"], lto_compiles = False)
     if target_cpu == "x86_64":
         # GCC places some 32-byte-aligned stack objects 16 bytes off the Win64
         # stack's alignment, yet moves them with aligned AVX moves (GCC PR 54412).
-        return [_codegen_feature("unaligned_vector_moves", ["-Wa,-muse-unaligned-vector-move"])]
-    if target_cpu == "i686":
-        # Win32 aligns the stack to 4 bytes; GCC assumes 16 and spills SSE
-        # values with movaps without realigning.
-        return [_codegen_feature("assume_4_byte_aligned_stack", ["-mincoming-stack-boundary=2"])]
-    return []
+        return [big_objects, _codegen_feature("unaligned_vector_moves", ["-Wa,-muse-unaligned-vector-move"], lto_compiles = True)]
+
+    # Win32 aligns the stack to 4 bytes; GCC assumes 16 and spills SSE
+    # values with movaps without realigning.
+    return [big_objects, _codegen_feature("assume_4_byte_aligned_stack", ["-mincoming-stack-boundary=2"], lto_compiles = True)]
 
 _WINDOWS_ARTIFACT_NAMES = [
     artifact_name_pattern(category_name = "executable", prefix = "", extension = ".exe"),

@@ -823,6 +823,7 @@ Bazel `--features=` flags wired to compiler/linker options.
 | `bind_now` | `-Wl,-z,now` | Linux targets (ELF), a no-op for static links; not bare metal, Windows or macOS |
 | `unaligned_vector_moves` | `-Wa,-muse-unaligned-vector-move` | 64-bit Windows with GCC (mingw-w64), C and C++ compiles and links |
 | `assume_4_byte_aligned_stack` | `-mincoming-stack-boundary=2` | 32-bit Windows with GCC (mingw-w64), C and C++ compiles and links |
+| `big_objects` | `-Wa,-mbig-obj` | Windows with GCC (mingw-w64), C and C++ compiles (not under `lto`) and links |
 
 `bind_now` turns the RELRO every supported linker already applies into full
 RELRO. A consumer wants it here rather than as `--linkopt=-Wl,-z,now`, which
@@ -863,6 +864,21 @@ realignment also protects the code it calls that was built without the flag,
 such as the prebuilt libgcc, whose SSE moves to the stack assume 16. Under LTO,
 one object or the link passing it applies it to the whole program, so a
 library's opt-out holds only if nothing else in the binary passes it.
+
+`big_objects` has the assembler write the bigobj variant of COFF. Classic COFF
+counts sections in 16 bits, and gas refuses an object with more than 32767
+("too many sections"), while GCC gives every COMDAT, such as each template
+instantiation and inline function, its own section, and on 64-bit Windows two
+more for its unwind data: a large C++ file at `-O0` exceeds the limit. It covers
+C and C++ compiles only, not assembly sources. Linking objects of both formats
+works. Under LTO the compiles go without it, since GCC's LTO plugin cannot read
+IR objects in the bigobj format, and the link passes it to the code it
+generates. ld still refuses an LTO IR object with more COMDATs than classic COFF
+holds sections, so such a file builds only without `lto`. Clang toolchains,
+which link with lld, need no flag: clang keeps classic COFF past 32767
+sections, which lld reads and GNU ld does not, and switches to bigobj past
+the 65279 sections classic COFF can number, the rest of the 16-bit range
+being reserved.
 
 ### Opt-in
 

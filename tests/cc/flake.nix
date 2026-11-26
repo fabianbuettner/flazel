@@ -1146,69 +1146,149 @@
           windows = true;
         };
 
-        # Each mingw-w64 GCC toolchain's C and C++ compiles and links get its
-        # stack alignment flag and not the other's; Linux ones, clang's among
-        # them, get neither. stack-align-mingw* hold the behavioural controls.
-        # has, lacks: flags every action passes, and flags none passes.
-        mkStackFlagsCheck =
+        # Under every toolchain, each case's actions (mnemonic CppCompile or
+        # CppLink, under bazelFlags) of a C and a C++ binary pass every flag of
+        # has and none of lacks.
+        mkFlagsCheck =
           {
             name,
             toolchains,
-            has,
-            lacks,
+            cases,
           }:
           mkShellCheck {
             inherit name;
             variant = variants.default;
             shell.toolchains = toolchains;
             script = ''
-              # Every $1 action (CppCompile or CppLink) of $3 under toolchain $2.
+              # Every $1 action of $3, under toolchain $2 and the bazel flags after
+              # $5, passes every flag in $4 and none in $5.
               expect() {
-                local argv f
-                argv=$(bazel aquery "--platforms=@local_config_cc_$2//:platform" "mnemonic(\"$1\", $3)" --output=jsonproto \
+                local mnemonic=$1 tc=$2 target=$3 has=$4 lacks=$5 argv f
+                shift 5
+                argv=$(bazel aquery "--platforms=@local_config_cc_$tc//:platform" "$@" "mnemonic(\"$mnemonic\", $target)" --output=jsonproto \
                   | jq -r '(.actions // [])[].arguments | join(" ")')
-                [ -n "$argv" ] || { fail "$2: no $1 of $3"; return; }
-                for f in ${pkgs.lib.concatStringsSep " " (has ++ lacks)}; do
-                  echo "$2 $1 $3: $(grep -c -E -- " $f( |$)" <<<"$argv" || true) of $(wc -l <<<"$argv") pass $f"
+                [ -n "$argv" ] || { fail "$tc $*: no $mnemonic of $target"; return; }
+                for f in $has $lacks; do
+                  echo "$tc $* $mnemonic $target: $(grep -c -E -- " $f( |$)" <<<"$argv" || true) of $(wc -l <<<"$argv") pass $f"
                 done
-                for f in ${pkgs.lib.concatStringsSep " " has}; do
-                  if grep -v -q -E -- " $f( |$)" <<<"$argv"; then fail "$2: a $1 of $3 lacks $f"; fi
+                for f in $has; do
+                  if grep -v -q -E -- " $f( |$)" <<<"$argv"; then fail "$tc $*: a $mnemonic of $target lacks $f"; fi
                 done
-                for f in ${pkgs.lib.concatStringsSep " " lacks}; do
-                  if grep -q -- " $f" <<<"$argv"; then fail "$2: a $1 of $3 passes $f"; fi
+                for f in $lacks; do
+                  if grep -q -- " $f" <<<"$argv"; then fail "$tc $*: a $mnemonic of $target passes $f"; fi
                 done
               }
               for tc in ${pkgs.lib.concatStringsSep " " (builtins.attrNames toolchains)}; do
-                for mnemonic in CppCompile CppLink; do
-                  expect $mnemonic $tc //m_pi:m_pi
-                  expect $mnemonic $tc //excess_precision:excess_precision
+                for target in //m_pi:m_pi //excess_precision:excess_precision; do
+                  ${pkgs.lib.concatMapStrings (c: ''
+                    expect ${c.mnemonic} $tc $target "${pkgs.lib.concatStringsSep " " c.has}" "${pkgs.lib.concatStringsSep " " c.lacks}" ${c.bazelFlags}
+                  '') cases}
                 done
               done
             '';
           };
+        # Compiles and links alike, under bazelFlags.
+        compilesAndLinks =
+          bazelFlags:
+          { has, lacks }:
+          map
+            (mnemonic: {
+              inherit
+                mnemonic
+                bazelFlags
+                has
+                lacks
+                ;
+            })
+            [
+              "CppCompile"
+              "CppLink"
+            ];
+
+        # Each mingw-w64 GCC toolchain's C and C++ compiles and links get its
+        # stack alignment flag and not the other's; Linux ones, clang's among
+        # them, get neither. stack-align-mingw* hold the behavioural controls.
         unalignedVectorMovesFlag = "-Wa,-muse-unaligned-vector-move";
         incomingStackBoundaryFlag = "-mincoming-stack-boundary=2";
-        stackFlags = mkStackFlagsCheck {
+        stackFlags = mkFlagsCheck {
           name = "stack-flags";
           toolchains = selectionToolchains;
-          has = [ ];
-          lacks = [
-            unalignedVectorMovesFlag
-            incomingStackBoundaryFlag
-          ];
+          cases = compilesAndLinks "" {
+            has = [ ];
+            lacks = [
+              unalignedVectorMovesFlag
+              incomingStackBoundaryFlag
+            ];
+          };
         };
-        stackFlagsMingw64 = mkStackFlagsCheck {
+        stackFlagsMingw64 = mkFlagsCheck {
           name = "stack-flags-mingw64";
           toolchains.default = mingw64Cfg;
-          has = [ unalignedVectorMovesFlag ];
-          lacks = [ incomingStackBoundaryFlag ];
+          cases = compilesAndLinks "" {
+            has = [ unalignedVectorMovesFlag ];
+            lacks = [ incomingStackBoundaryFlag ];
+          };
         };
-        stackFlagsMingw32 = mkStackFlagsCheck {
+        stackFlagsMingw32 = mkFlagsCheck {
           name = "stack-flags-mingw32";
           toolchains.default = mingw32Cfg;
-          has = [ incomingStackBoundaryFlag ];
-          lacks = [ unalignedVectorMovesFlag ];
+          cases = compilesAndLinks "" {
+            has = [ incomingStackBoundaryFlag ];
+            lacks = [ unalignedVectorMovesFlag ];
+          };
         };
+
+        # Both mingw-w64 GCC toolchains' C and C++ compiles and links get
+        # -mbig-obj, LTO's compiles excepted; Linux ones never do.
+        # big-objects-mingw* hold the behavioural controls.
+        bigObjFlag = "-Wa,-mbig-obj";
+        # gas's limit: binutils reads a COFF symbol's 16-bit section number as signed.
+        classicCoffSections = 32767;
+        ltoFlags = "-c opt --features=lto";
+        bigObjectsFlags = mkFlagsCheck {
+          name = "big-objects-flags";
+          toolchains = selectionToolchains;
+          cases =
+            pkgs.lib.concatMap
+              (
+                flags:
+                compilesAndLinks flags {
+                  has = [ ];
+                  lacks = [ bigObjFlag ];
+                }
+              )
+              [
+                ""
+                ltoFlags
+              ];
+        };
+        mkBigObjectsFlagsCheck =
+          name: cfg:
+          mkFlagsCheck {
+            inherit name;
+            toolchains.default = cfg;
+            cases =
+              compilesAndLinks "" {
+                has = [ bigObjFlag ];
+                lacks = [ ];
+              }
+              ++ [
+                {
+                  mnemonic = "CppCompile";
+                  bazelFlags = ltoFlags;
+                  has = [ ];
+                  lacks = [ bigObjFlag ];
+                }
+                {
+                  mnemonic = "CppLink";
+                  bazelFlags = ltoFlags;
+                  has = [ bigObjFlag ];
+                  lacks = [ ];
+                }
+              ];
+          };
+        bigObjectsFlagsMingw64 = mkBigObjectsFlagsCheck "big-objects-flags-mingw64" mingw64Cfg;
+        bigObjectsFlagsMingw32 = mkBigObjectsFlagsCheck "big-objects-flags-mingw32" mingw32Cfg;
 
         # //stack_align:<bin> under Wine, with and without the toolchain's stack
         # alignment feature, in each mode. With it, symbol's code matches the
@@ -1362,6 +1442,104 @@
           broken = ''movaps[[:space:]]+%xmm[0-9]+,[^ ]*\(%e[bs]p\)'';
           relinked = "fixed";
           spread = "__Z6reportPKc";
+        };
+
+        # //big_objects under Wine: each object of big has more sections than
+        # classic COFF holds, so without big_objects it does not build, and with
+        # it, it runs, in each mode; so does big_mixed, which links a classic
+        # object, big_lto, whose link alone passes the flag, and with functions,
+        # big_functions, which unwinds through unwind data past the classic
+        # count. format: the object file format's CPU part, as objdump names it.
+        mkBigObjectsCheck =
+          {
+            name,
+            cfg,
+            format,
+            functions,
+          }:
+          mkShellCheck {
+            inherit name;
+            variant = variants.default;
+            shell.toolchains.default = cfg;
+            script = ''
+              platform=--platforms=@local_config_cc_default//:platform
+              objdump=${cfg.binutils}/bin/${cfg.target.triple}-objdump
+              # Object $2 is in format $1 (pe or pe-bigobj); bigobj ones have
+              # more sections than classic COFF holds.
+              object() {
+                local want=$1-${format} got count
+                got=$($objdump -h "$2" | grep -m1 -o 'file format [^ ]*' || true)
+                count=$($objdump -h "$2" | grep -c '^ *[0-9]\+ ' || true)
+                echo "$2: $got, $count sections"
+                [ "$got" = "file format $want" ] || fail "$2 is not $want"
+                [ "$1" = pe ] || [ "$count" -gt ${toString classicCoffSections} ] || fail "$2 has $count sections only"
+              }
+              # //big_objects:$1, under the bazel flags after it, runs under Wine.
+              runs() {
+                local bin=$1 out
+                shift
+                if ! bazel build $platform "$@" //big_objects:$bin; then
+                  fail "could not build //big_objects:$bin $*"
+                  return
+                fi
+                cp -f bazel-bin/big_objects/$bin.exe $TMPDIR/$bin.exe
+                out=$(${wineRunner} $TMPDIR/$bin.exe | tr -d '\r' || true)
+                echo "$bin $*: Wine says: $out"
+                [ "$out" = "flazel big_objects ok" ] || fail "$bin $*: failed under Wine"
+              }
+              # //big_objects:$1, under the bazel flags after $2, fails with a
+              # line matching the extended regex $2.
+              refuses() {
+                local bin=$1 says=$2
+                shift 2
+                if bazel build $platform "$@" //big_objects:$bin 2>$TMPDIR/build.err; then
+                  fail "built //big_objects:$bin $*"
+                elif grep -m1 -E -- "$says" $TMPDIR/build.err; then
+                  echo "$bin $*: refused"
+                else
+                  cat $TMPDIR/build.err
+                  fail "$bin $*: failed without saying $says"
+                fi
+              }
+              for mode in fastbuild opt; do
+                runs big -c $mode
+                object pe-bigobj bazel-bin/big_objects/_objs/big/big.o
+                refuses big 'too many sections' -c $mode --features=-big_objects
+              done
+              runs big_mixed -c fastbuild
+              object pe-bigobj bazel-bin/big_objects/_objs/big_mixed/big.o
+              object pe bazel-bin/big_objects/_objs/report_classic/report.o
+              lto=(-c opt --features=lto)
+              runs big_lto "''${lto[@]}"
+              refuses big_lto 'too many sections' "''${lto[@]}" --features=-big_objects
+              # Why LTO's compiles go without: the linker's plugin cannot read bigobj IR.
+              refuses big_lto 'ld(\.bfd)?: .*plugin needed to handle lto object' "''${lto[@]}" --copt=${bigObjFlag}
+              # Why big_lto has no COMDATs: ld refuses an IR object with too many.
+              refuses big '\(symbol from plugin\): too many sections' "''${lto[@]}"
+              ${pkgs.lib.optionalString functions ''
+                for mode in fastbuild opt; do
+                  runs big_functions -c $mode
+                  obj=bazel-bin/big_objects/_objs/big_functions/big_functions.o
+                  object pe-bigobj $obj
+                  last=$($objdump -h $obj | awk '$2 ~ /^\.pdata/ && $1 + 0 > last { last = $1 + 0 } END { print last + 0 }')
+                  echo "$obj: last .pdata is section $last"
+                  [ "$last" -gt ${toString classicCoffSections} ] || fail "$obj: no .pdata past the classic count"
+                  refuses big_functions 'too many sections' -c $mode --features=-big_objects
+                done
+              ''}
+            '';
+          };
+        bigObjectsMingw64 = mkBigObjectsCheck {
+          name = "big-objects-mingw64";
+          cfg = mingw64Cfg;
+          format = "x86-64";
+          functions = true;
+        };
+        bigObjectsMingw32 = mkBigObjectsCheck {
+          name = "big-objects-mingw32";
+          cfg = mingw32Cfg;
+          format = "i386";
+          functions = false;
         };
 
         # Both compiler flags report the toolchain's compiler identity, and a
@@ -2071,6 +2249,11 @@
           stack-flags-mingw32 = stackFlagsMingw32;
           stack-align-mingw64 = stackAlignMingw64;
           stack-align-mingw32 = stackAlignMingw32;
+          big-objects-flags = bigObjectsFlags;
+          big-objects-flags-mingw64 = bigObjectsFlagsMingw64;
+          big-objects-flags-mingw32 = bigObjectsFlagsMingw32;
+          big-objects-mingw64 = bigObjectsMingw64;
+          big-objects-mingw32 = bigObjectsMingw32;
           pedantic-warnings = pedanticWarnings;
           compiler-id = compilerId;
           compiler-id-mingw64 = compilerIdMingw64;

@@ -1,0 +1,86 @@
+# Objects past classic COFF's section count (flake.nix: big-objects-mingw64, -mingw32).
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+# Sections per generated object, a tenth more than classic COFF holds.
+_SECTIONS = 36000
+
+_GEN = "awk -v n=%d -v internal=%d -v functions=%d -f $(execpath gen.awk) > $@"
+
+genrule(
+    name = "big_src",
+    srcs = ["gen.awk"],
+    outs = ["big.cc"],
+    cmd = _GEN % (_SECTIONS, 0, 0),
+)
+
+# Internal linkage, so no COMDATs: under LTO ld refuses an IR object with more
+# COMDATs than classic COFF holds sections.
+genrule(
+    name = "big_internal_src",
+    srcs = ["gen.awk"],
+    outs = ["big_internal.cc"],
+    cmd = _GEN % (_SECTIONS, 1, 0),
+)
+
+# A function takes three sections on 64-bit Windows: code, .pdata and .xdata.
+genrule(
+    name = "big_functions_src",
+    srcs = ["gen.awk"],
+    outs = ["big_functions.cc"],
+    cmd = _GEN % (
+        _SECTIONS // 3,
+        0,
+        1,
+    ),
+)
+
+cc_library(
+    name = "report",
+    srcs = ["report.cc"],
+    hdrs = ["report.h"],
+)
+
+cc_library(
+    name = "report_classic",
+    srcs = ["report.cc"],
+    hdrs = ["report.h"],
+    features = ["-big_objects"],
+)
+
+cc_binary(
+    name = "big",
+    srcs = [":big_src"],
+    target_compatible_with = ["@platforms//os:windows"],
+    deps = [":report"],
+)
+
+cc_binary(
+    name = "big_mixed",
+    srcs = [":big_src"],
+    target_compatible_with = ["@platforms//os:windows"],
+    deps = [":report_classic"],
+)
+
+# Under LTO, one LTRANS unit with a section per variable: the link's
+# -fdata-sections applies there, the compile's does not.
+cc_binary(
+    name = "big_lto",
+    srcs = [":big_internal_src"],
+    linkopts = [
+        "-fdata-sections",
+        "-flto-partition=one",
+    ],
+    target_compatible_with = ["@platforms//os:windows"],
+    deps = [":report"],
+)
+
+# Unwinds through .pdata and .xdata past the classic section count.
+cc_binary(
+    name = "big_functions",
+    srcs = [":big_functions_src"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:windows",
+    ],
+    deps = [":report"],
+)
